@@ -27,6 +27,10 @@ export const metadata: Metadata = {
   title: 'Controle de Abastecimento - Jair',
   description:
     'Registre abastecimentos, acompanhe a quilometragem percorrida, calcule o consumo médio em km/l e analise seus gastos com combustível.',
+  icons: {
+    icon: '/assets/aistudio/Logotipo_JJ_Automotivo_em_Azul_e_Prata_6621a1b1.png',
+    apple: '/assets/aistudio/Logotipo_JJ_Automotivo_em_Azul_e_Prata_6621a1b1.png',
+  },
   openGraph: {
     title: 'Controle de Abastecimento - Jair',
     description:

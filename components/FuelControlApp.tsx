@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import {
   BarChart3,
   Car,
@@ -95,9 +96,19 @@ function FuelControlAuthGate() {
       <div className="min-h-screen bg-[#0B0D12] text-[#F1F5F9] flex flex-col">
         <header className="sticky top-0 z-30 bg-[#0B0D12]/90 border-b border-[#1E2534]">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
-            <span className="font-display text-base sm:text-lg font-bold tracking-tight text-[#F1F5F9] whitespace-nowrap shrink-0">
-              Controle de Abastecimento - Jair
-            </span>
+            <div className="flex items-center gap-3 min-w-0">
+              <Image
+                src="/assets/aistudio/Logotipo_JJ_Automotivo_em_Azul_e_Prata_6621a1b1.png"
+                alt="Logo Controle de Abastecimento - Jair"
+                width={36}
+                height={36}
+                referrerPolicy="no-referrer"
+                className="w-9 h-9 rounded-lg object-cover border border-[#232A3B] shrink-0"
+              />
+              <span className="font-display text-base sm:text-lg font-bold tracking-tight text-[#F1F5F9] whitespace-nowrap shrink-0">
+                Controle de Abastecimento - Jair
+              </span>
+            </div>
           </div>
         </header>
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -456,9 +467,19 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
           <button
             type="button"
             onClick={() => setActiveTab('dashboard')}
-            className="font-display text-base sm:text-lg font-bold tracking-tight text-[#F1F5F9] whitespace-nowrap shrink-0 text-left truncate max-w-[210px] sm:max-w-none"
+            className="flex items-center gap-3 text-left min-w-0 shrink-0"
           >
-            Controle de Abastecimento - Jair
+            <Image
+              src="/assets/aistudio/Logotipo_JJ_Automotivo_em_Azul_e_Prata_6621a1b1.png"
+              alt="Logo Controle de Abastecimento - Jair"
+              width={36}
+              height={36}
+              referrerPolicy="no-referrer"
+              className="w-9 h-9 rounded-lg object-cover border border-[#232A3B] shrink-0"
+            />
+            <span className="font-display text-base sm:text-lg font-bold tracking-tight text-[#F1F5F9] whitespace-nowrap truncate max-w-[175px] sm:max-w-none">
+              Controle de Abastecimento - Jair
+            </span>
           </button>
 
           <nav

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { BarChart3, Fuel, LogIn, ShieldCheck } from 'lucide-react';
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
@@ -38,7 +39,16 @@ export function LoginScreen() {
   return (
     <div className="min-h-screen bg-[#0B0D12] text-[#F1F5F9] flex flex-col justify-center items-center px-4 py-10">
       <div className="w-full max-w-md bg-[#12161F] border border-[#232A3B] rounded-2xl p-7 sm:p-8 shadow-2xl space-y-6">
-        <div>
+        <div className="flex flex-col items-center text-center">
+          <Image
+            src="/assets/aistudio/Logotipo_JJ_Automotivo_em_Azul_e_Prata_6621a1b1.png"
+            alt="Logotipo Controle de Abastecimento - Jair"
+            width={104}
+            height={104}
+            referrerPolicy="no-referrer"
+            priority
+            className="w-24 h-24 rounded-2xl object-cover border border-[#232A3B] mb-4"
+          />
           <p className="text-xs font-medium text-[#38BDF8]">
             Acesso pessoal sincronizado
           </p>
