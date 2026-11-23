@@ -1,8 +1,11 @@
 import {
   AlertItem,
+  ComputedMaintenanceItem,
   ComputedRefueling,
   FuelComparisonItem,
   FuelType,
+  MaintenanceItem,
+  MaintenanceStatus,
   MonthlyBucket,
   Refueling,
   ReportPeriod,
@@ -251,12 +254,151 @@ export function computeDashboardMetrics(
   };
 }
 
+export function getEffectiveVehicleOdometer(
+  vehicle: Vehicle,
+  vehicleRefuelings: Pick<Refueling, 'odometerKm'>[]
+): number {
+  let maxKm = vehicle.currentOdometer || 0;
+  for (const r of vehicleRefuelings) {
+    if (r.odometerKm > maxKm) {
+      maxKm = r.odometerKm;
+    }
+  }
+  return maxKm;
+}
+
+function addMonthsToIsoDate(isoDate: string, months: number): string | null {
+  const parts = isoDate.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1 + months, d);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+export function computeVehicleMaintenances(
+  effectiveOdometerKm: number,
+  items: MaintenanceItem[],
+  referenceDate: Date = new Date()
+): ComputedMaintenanceItem[] {
+  const refMidday = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate(),
+    12,
+    0,
+    0
+  );
+
+  const computed = items.map((item): ComputedMaintenanceItem => {
+    const nextDueKm = item.lastDoneKm + item.intervalKm;
+    const kmDrivenSinceLast = Math.max(0, effectiveOdometerKm - item.lastDoneKm);
+    const kmRemaining = nextDueKm - effectiveOdometerKm;
+    const progressPct =
+      item.intervalKm > 0
+        ? Math.min(100, Math.max(0, (kmDrivenSinceLast / item.intervalKm) * 100))
+        : 0;
+
+    let nextDueDate: string | null = null;
+    let daysRemaining: number | null = null;
+    if (item.lastDoneDate && item.intervalMonths && item.intervalMonths > 0) {
+      nextDueDate = addMonthsToIsoDate(item.lastDoneDate, item.intervalMonths);
+      if (nextDueDate) {
+        const dueMidday = new Date(`${nextDueDate}T12:00:00`);
+        daysRemaining = Math.ceil(
+          (dueMidday.getTime() - refMidday.getTime()) / (1000 * 60 * 60 * 24)
+        );
+      }
+    }
+
+    const kmWarningThreshold = Math.min(
+      1500,
+      Math.max(500, Math.round(item.intervalKm * 0.15))
+    );
+
+    let status: MaintenanceStatus = 'ok';
+    if (kmRemaining <= 0 || (daysRemaining !== null && daysRemaining <= 0)) {
+      status = 'overdue';
+    } else if (
+      kmRemaining <= kmWarningThreshold ||
+      (daysRemaining !== null && daysRemaining <= 30)
+    ) {
+      status = 'due_soon';
+    }
+
+    return {
+      ...item,
+      currentOdometerKm: effectiveOdometerKm,
+      nextDueKm,
+      kmDrivenSinceLast,
+      kmRemaining,
+      progressPct,
+      nextDueDate,
+      daysRemaining,
+      status,
+    };
+  });
+
+  const priority: Record<MaintenanceStatus, number> = {
+    overdue: 0,
+    due_soon: 1,
+    ok: 2,
+  };
+
+  return computed.sort((a, b) => {
+    if (priority[a.status] !== priority[b.status]) {
+      return priority[a.status] - priority[b.status];
+    }
+    return a.kmRemaining - b.kmRemaining;
+  });
+}
+
 export function computeAlerts(
   vehicle: Vehicle,
   computed: ComputedRefueling[],
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  maintenances: ComputedMaintenanceItem[] = []
 ): AlertItem[] {
   const alerts: AlertItem[] = [];
+  const effectiveOdometer = getEffectiveVehicleOdometer(vehicle, computed);
+
+  // Maintenance alerts (highest operational priority)
+  for (const m of maintenances) {
+    if (m.status === 'overdue') {
+      const overdueKm = Math.max(0, Math.abs(m.kmRemaining));
+      const byKm = m.kmRemaining <= 0;
+      alerts.push({
+        id: `maint-overdue-${m.id}`,
+        type: 'maintenance',
+        severity: 'danger',
+        title: `Manutenção vencida: ${m.title}`,
+        description: byKm
+          ? `O veículo atingiu ${formatKm(effectiveOdometer)} e ultrapassou o limite previsto de ${formatKm(m.nextDueKm)} (última troca em ${formatKm(m.lastDoneKm)}).`
+          : `O prazo programado venceu em ${formatDateBR(m.nextDueDate || '')}. Odômetro atual: ${formatKm(effectiveOdometer)}.`,
+        metricLabel: byKm ? `+${formatKm(overdueKm)} atraso` : 'Prazo vencido',
+        targetTab: 'maintenance',
+      });
+    } else if (m.status === 'due_soon') {
+      const byKm =
+        m.kmRemaining <=
+        Math.min(1500, Math.max(500, Math.round(m.intervalKm * 0.15)));
+      alerts.push({
+        id: `maint-soon-${m.id}`,
+        type: 'maintenance',
+        severity: 'warning',
+        title: `Manutenção próxima: ${m.title}`,
+        description: byKm
+          ? `Faltam ${formatKm(m.kmRemaining)} para atingir ${formatKm(m.nextDueKm)} (intervalo de ${formatKm(m.intervalKm)}).`
+          : `Prevista para ${formatDateBR(m.nextDueDate || '')} (${m.daysRemaining} dia(s) restante(s)).`,
+        metricLabel: byKm
+          ? `Faltam ${formatKm(m.kmRemaining)}`
+          : `${m.daysRemaining} dias`,
+        targetTab: 'maintenance',
+      });
+    }
+  }
 
   if (computed.length === 0) {
     alerts.push({
@@ -265,7 +407,7 @@ export function computeAlerts(
       severity: 'info',
       title: 'Primeiro abastecimento pendente',
       description: `Registre o primeiro abastecimento de ${vehicle.name} para iniciar o rastreamento de quilometragem e consumo médio.`,
-      metricLabel: `Odômetro: ${formatKm(vehicle.currentOdometer)}`,
+      metricLabel: `Odômetro: ${formatKm(effectiveOdometer)}`,
     });
     return alerts;
   }
@@ -360,7 +502,7 @@ export function computeAlerts(
   const diffDays = Math.floor(
     (referenceDate.getTime() - latestDate.getTime()) / (1000 * 60 * 60 * 24)
   );
-  const kmSinceLast = vehicle.currentOdometer - latest.odometerKm;
+  const kmSinceLast = effectiveOdometer - latest.odometerKm;
 
   if (diffDays >= 14 || kmSinceLast >= 350) {
     const reason =

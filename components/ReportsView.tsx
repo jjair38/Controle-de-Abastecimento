@@ -34,7 +34,10 @@ const PERIOD_OPTIONS: { id: ReportPeriod; label: string }[] = [
   { id: 'all', label: 'Tudo' },
 ];
 
-export function ReportsView({ vehicle, computed }: ReportsViewProps) {
+export const ReportsView = React.memo(function ReportsView({
+  vehicle,
+  computed,
+}: ReportsViewProps) {
   const [period, setPeriod] = useState<ReportPeriod>('semester');
 
   const filteredRefuelings = useMemo(
@@ -387,4 +390,4 @@ export function ReportsView({ vehicle, computed }: ReportsViewProps) {
       )}
     </div>
   );
-}
+});

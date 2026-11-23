@@ -1,5 +1,5 @@
 import { createEmptyWorkspace, createSeedData } from './seed';
-import { AppStorageData, Refueling, Vehicle } from './types';
+import { AppStorageData, MaintenanceItem, Refueling, Vehicle } from './types';
 
 const STORAGE_KEY = 'fuel_control_workspace_v1';
 
@@ -66,6 +66,7 @@ export function exportBackupJSON(data: AppStorageData): void {
     version: data.version,
     vehicles: data.vehicles,
     refuelings: data.refuelings,
+    maintenances: data.maintenances ?? [],
     activeVehicleId: data.activeVehicleId,
   };
 
@@ -120,6 +121,22 @@ export function validateBackupPayload(raw: unknown): AppStorageData | null {
       (r as Refueling).liters > 0
   );
 
+  const validMaintenances: MaintenanceItem[] = Array.isArray(obj.maintenances)
+    ? obj.maintenances.filter(
+        (m): m is MaintenanceItem =>
+          Boolean(m) &&
+          typeof m === 'object' &&
+          typeof (m as MaintenanceItem).id === 'string' &&
+          typeof (m as MaintenanceItem).vehicleId === 'string' &&
+          vehicleIds.has((m as MaintenanceItem).vehicleId) &&
+          typeof (m as MaintenanceItem).title === 'string' &&
+          typeof (m as MaintenanceItem).lastDoneKm === 'number' &&
+          (m as MaintenanceItem).lastDoneKm >= 0 &&
+          typeof (m as MaintenanceItem).intervalKm === 'number' &&
+          (m as MaintenanceItem).intervalKm >= 100
+      )
+    : [];
+
   const activeVehicleId =
     typeof obj.activeVehicleId === 'string' &&
     vehicleIds.has(obj.activeVehicleId)
@@ -130,6 +147,7 @@ export function validateBackupPayload(raw: unknown): AppStorageData | null {
     version: 1,
     vehicles: validVehicles,
     refuelings: validRefuelings,
+    maintenances: validMaintenances,
     activeVehicleId,
     isDemoData: false,
   };

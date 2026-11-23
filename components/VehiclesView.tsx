@@ -21,6 +21,7 @@ import {
   formatCurrency,
   formatDecimal,
   formatKm,
+  getEffectiveVehicleOdometer,
 } from '@/lib/calculations';
 import { Refueling, Vehicle } from '@/lib/types';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -42,7 +43,7 @@ interface VehiclesViewProps {
   onSignOut: () => void;
 }
 
-export function VehiclesView({
+export const VehiclesView = React.memo(function VehiclesView({
   userEmail,
   userName,
   vehicles,
@@ -135,6 +136,7 @@ export function VehiclesView({
               const vRefuelings = refuelings.filter((r) => r.vehicleId === v.id);
               const computed = computeVehicleRefuelings(vRefuelings);
               const metrics = computeDashboardMetrics(computed, new Date());
+              const effectiveOdo = getEffectiveVehicleOdometer(v, vRefuelings);
 
               return (
                 <div
@@ -167,7 +169,7 @@ export function VehiclesView({
                       <div>
                         <span className="text-[#64748B] block">Odômetro</span>
                         <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
-                          {formatKm(v.currentOdometer)}
+                          {formatKm(effectiveOdo)}
                         </span>
                       </div>
                       <div>
@@ -274,9 +276,9 @@ export function VehiclesView({
               Backup e sincronização na nuvem
             </h2>
             <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed max-w-2xl">
-              Todos os seus veículos e abastecimentos ficam salvos na sua conta
-              Google em tempo real. Você também pode exportar ou restaurar uma
-              cópia de segurança em arquivo JSON.
+              Todos os seus veículos, abastecimentos e manutenções ficam salvos
+              na sua conta Google em tempo real. Você também pode exportar ou
+              restaurar uma cópia de segurança em arquivo JSON.
             </p>
           </div>
         </div>
@@ -344,7 +346,7 @@ export function VehiclesView({
         title="Excluir veículo?"
         description={
           deletingVehicle
-            ? `Excluir "${deletingVehicle.brand} ${deletingVehicle.name}" removerá também todos os abastecimentos vinculados a ele. Esta ação não pode ser desfeita.`
+            ? `Excluir "${deletingVehicle.brand} ${deletingVehicle.name}" removerá também todos os abastecimentos e manutenções vinculados a ele. Esta ação não pode ser desfeita.`
             : ''
         }
         confirmLabel="Excluir veículo"
@@ -357,7 +359,7 @@ export function VehiclesView({
       <ConfirmDialog
         isOpen={confirmClearAll}
         title="Limpar todos os dados?"
-        description="Todos os veículos e registros de abastecimento salvos na sua conta serão removidos para que você possa começar do zero."
+        description="Todos os veículos, abastecimentos e manutenções salvos na sua conta serão removidos para que você possa começar do zero."
         confirmLabel="Limpar tudo"
         onConfirm={onClearAll}
         onCancel={() => setConfirmClearAll(false)}
@@ -374,4 +376,4 @@ export function VehiclesView({
       />
     </div>
   );
-}
+});

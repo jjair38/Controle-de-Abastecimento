@@ -2,7 +2,22 @@ export type FuelType = 'Gasolina' | 'Etanol' | 'Diesel' | 'GNV';
 
 export type ReportPeriod = 'month' | 'quarter' | 'semester' | 'year' | 'all';
 
-export type ActiveTab = 'dashboard' | 'history' | 'reports' | 'vehicles';
+export type ActiveTab =
+  | 'dashboard'
+  | 'history'
+  | 'reports'
+  | 'maintenance'
+  | 'vehicles';
+
+export type MaintenanceCategory =
+  | 'Motor & Óleo'
+  | 'Freios'
+  | 'Pneus & Suspensão'
+  | 'Filtros'
+  | 'Elétrica'
+  | 'Geral';
+
+export type MaintenanceStatus = 'ok' | 'due_soon' | 'overdue';
 
 export interface Vehicle {
   id: string;
@@ -39,13 +54,39 @@ export interface ComputedRefueling extends Refueling {
   isEstimated: boolean;
 }
 
+export interface MaintenanceItem {
+  id: string;
+  vehicleId: string;
+  title: string;
+  category: MaintenanceCategory;
+  lastDoneKm: number;
+  intervalKm: number;
+  lastDoneDate?: string; // YYYY-MM-DD
+  intervalMonths?: number;
+  cost?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface ComputedMaintenanceItem extends MaintenanceItem {
+  currentOdometerKm: number;
+  nextDueKm: number;
+  kmDrivenSinceLast: number;
+  kmRemaining: number;
+  progressPct: number;
+  nextDueDate: string | null;
+  daysRemaining: number | null;
+  status: MaintenanceStatus;
+}
+
 export interface AlertItem {
   id: string;
-  type: 'consumption' | 'price' | 'monthly_spend' | 'reminder';
+  type: 'consumption' | 'price' | 'monthly_spend' | 'reminder' | 'maintenance';
   severity: 'danger' | 'warning' | 'info';
   title: string;
   description: string;
   metricLabel: string;
+  targetTab?: ActiveTab;
 }
 
 export interface MonthlyBucket {
@@ -75,6 +116,7 @@ export interface AppStorageData {
   version: number;
   vehicles: Vehicle[];
   refuelings: Refueling[];
+  maintenances?: MaintenanceItem[];
   activeVehicleId: string | null;
   isDemoData?: boolean;
 }

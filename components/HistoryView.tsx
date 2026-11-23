@@ -27,7 +27,7 @@ interface HistoryViewProps {
   onDeleteRefueling: (id: string) => void;
 }
 
-export function HistoryView({
+export const HistoryView = React.memo(function HistoryView({
   vehicle,
   computed,
   onAddRefueling,
@@ -401,4 +401,4 @@ export function HistoryView({
       />
     </div>
   );
-}
+});

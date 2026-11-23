@@ -34,6 +34,10 @@ service cloud.firestore {
       return fuel in ['Gasolina', 'Etanol', 'Diesel', 'GNV'];
     }
 
+    function isValidMaintenanceCategory(category) {
+      return category in ['Motor & Óleo', 'Freios', 'Pneus & Suspensão', 'Filtros', 'Elétrica', 'Geral'];
+    }
+
     function isValidDateStr(d) {
       return d is string && d.size() == 10 && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
     }
@@ -98,6 +102,30 @@ service cloud.firestore {
         && isValidFuel(data.fuelType)
         && data.fullTank is bool
         && (!('station' in data) || (data.station is string && data.station.size() <= 100))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 400))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidMaintenance(data, userId) {
+      return data.keys().hasAll(['ownerId', 'vehicleId', 'title', 'category', 'lastDoneKm', 'intervalKm', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'vehicleId', 'title', 'category', 'lastDoneKm', 'intervalKm', 'lastDoneDate', 'intervalMonths', 'cost', 'notes', 'createdAt', 'updatedAt'])
+        && data.ownerId == userId
+        && isValidId(data.ownerId)
+        && isValidId(data.vehicleId)
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 80
+        && isValidMaintenanceCategory(data.category)
+        && data.lastDoneKm is number
+        && data.lastDoneKm >= 0
+        && data.lastDoneKm <= 10000000
+        && data.intervalKm is number
+        && data.intervalKm >= 100
+        && data.intervalKm <= 500000
+        && (!('lastDoneDate' in data) || isValidDateStr(data.lastDoneDate))
+        && (!('intervalMonths' in data) || (data.intervalMonths is int && data.intervalMonths >= 1 && data.intervalMonths <= 120))
+        && (!('cost' in data) || (data.cost is number && data.cost >= 0 && data.cost <= 1000000))
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 400))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -169,6 +197,29 @@ service cloud.firestore {
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'odometerKm', 'totalPaid', 'liters', 'pricePerLiter', 'fuelType', 'fullTank', 'station', 'notes', 'updatedAt']);
         allow delete: if isOwner(userId) && isValidId(userId) && isValidId(refuelingId);
+      }
+
+      // User Maintenances Subcollection
+      match /maintenances/{maintenanceId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(maintenanceId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(maintenanceId)
+          && isValidMaintenance(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId)/vehicles/$(incoming().vehicleId));
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(maintenanceId)
+          && isValidMaintenance(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().vehicleId == existing().vehicleId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'lastDoneKm', 'intervalKm', 'lastDoneDate', 'intervalMonths', 'cost', 'notes', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(maintenanceId);
       }
     }
   }

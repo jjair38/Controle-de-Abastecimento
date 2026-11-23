@@ -1,11 +1,11 @@
 # Security Specification — Controle de Abastecimento - Jair
 
 ## 1. Data Invariants
-1. **Strict Ownership**: Every document under `/users/{userId}` (profile, `vehicles`, `refuelings`) can only be read, created, updated, or deleted by the verified authenticated user whose `request.auth.uid == userId` and `request.auth.token.email_verified == true`.
-2. **No Orphaned Refuelings**: A `Refueling` document under `/users/{userId}/refuelings/{refuelingId}` cannot be created unless its `vehicleId` points to an existing vehicle document in `/users/{userId}/vehicles/{vehicleId}` (`exists()`).
+1. **Strict Ownership**: Every document under `/users/{userId}` (profile, `vehicles`, `refuelings`, `maintenances`) can only be read, created, updated, or deleted by the verified authenticated user whose `request.auth.uid == userId` and `request.auth.token.email_verified == true`.
+2. **No Orphaned Records**: A `Refueling` or `MaintenanceItem` document under `/users/{userId}/...` cannot be created unless its `vehicleId` points to an existing vehicle document in `/users/{userId}/vehicles/{vehicleId}` (`exists()`).
 3. **Immutable Identity & Linkage**: `uid`, `ownerId`, `vehicleId`, and `createdAt` cannot be changed after creation.
 4. **Temporal Integrity**: `createdAt` on create and `updatedAt` on create/update must equal `request.time`.
-5. **Strict Schema & Bounds**: No extra/ghost fields (`hasOnly`), bounded string lengths, positive numbers for liters/totalPaid/pricePerLiter, non-negative odometer, valid fuel enum (`Gasolina`, `Etanol`, `Diesel`, `GNV`), valid ID regex (`^[a-zA-Z0-9_\-]+$`).
+5. **Strict Schema & Bounds**: No extra/ghost fields (`hasOnly`), bounded string lengths, positive numbers for liters/totalPaid/pricePerLiter, `intervalKm` between `100` and `500000`, non-negative odometer/cost, valid fuel/category enums, valid ID regex (`^[a-zA-Z0-9_\-]+$`).
 
 ## 2. The "Dirty Dozen" Adversarial Payloads (Expected: PERMISSION_DENIED)
 1. **Cross-user read**: User B (`uid-b`) reads `/users/uid-a/vehicles/veh-1`.

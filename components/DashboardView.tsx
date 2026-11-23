@@ -25,23 +25,32 @@ import {
   formatDecimal,
   formatKm,
 } from '@/lib/calculations';
-import { ActiveTab, ComputedRefueling, Vehicle } from '@/lib/types';
+import {
+  ActiveTab,
+  ComputedMaintenanceItem,
+  ComputedRefueling,
+  Vehicle,
+} from '@/lib/types';
 import { TrendLineChart } from './Charts';
 
 interface DashboardViewProps {
   vehicle: Vehicle | null;
   vehicles: Vehicle[];
+  effectiveOdometerKm: number;
   computed: ComputedRefueling[];
+  computedMaintenances: ComputedMaintenanceItem[];
   onSelectVehicle: (id: string) => void;
   onAddRefueling: () => void;
   onAddVehicle: () => void;
   onNavigate: (tab: ActiveTab) => void;
 }
 
-export function DashboardView({
+export const DashboardView = React.memo(function DashboardView({
   vehicle,
   vehicles,
+  effectiveOdometerKm,
   computed,
+  computedMaintenances,
   onSelectVehicle,
   onAddRefueling,
   onAddVehicle,
@@ -54,8 +63,8 @@ export function DashboardView({
 
   const alerts = useMemo(() => {
     if (!vehicle) return [];
-    return computeAlerts(vehicle, computed, new Date());
-  }, [vehicle, computed]);
+    return computeAlerts(vehicle, computed, new Date(), computedMaintenances);
+  }, [vehicle, computed, computedMaintenances]);
 
   const recentConsumptionChart = useMemo(() => {
     const withConsumption = computed.filter(
@@ -122,7 +131,7 @@ export function DashboardView({
             <span>{vehicle.defaultFuel}</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono tabular-nums">
-              Odômetro: {formatKm(vehicle.currentOdometer)}
+              Odômetro: {formatKm(effectiveOdometerKm)}
             </span>
             {vehicle.tankCapacity && (
               <>
@@ -503,6 +512,16 @@ export function DashboardView({
                       <p className="text-xs text-[#CBD5E1] mt-1 leading-relaxed">
                         {alert.description}
                       </p>
+                      {alert.targetTab && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate(alert.targetTab!)}
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] hover:text-white transition-colors"
+                        >
+                          Abrir manutenções
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                   <span
@@ -518,4 +537,4 @@ export function DashboardView({
       </section>
     </div>
   );
-}
+});

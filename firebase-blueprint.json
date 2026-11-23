@@ -36,7 +36,7 @@
     },
     "Vehicle": {
       "title": "Vehicle",
-      "description": "Veículo cadastrado pelo usuário para rastreamento isolado de abastecimentos.",
+      "description": "Veículo cadastrado pelo usuário para rastreamento isolado de abastecimentos e manutenções.",
       "type": "object",
       "properties": {
         "ownerId": {
@@ -157,6 +157,72 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "MaintenanceItem": {
+      "title": "MaintenanceItem",
+      "description": "Plano ou registro de manutenção preventiva por quilometragem (ex: troca de óleo a cada 10.000 km).",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "vehicleId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "category": {
+          "type": "string",
+          "enum": ["Motor & Óleo", "Freios", "Pneus & Suspensão", "Filtros", "Elétrica", "Geral"]
+        },
+        "lastDoneKm": {
+          "type": "number"
+        },
+        "intervalKm": {
+          "type": "number"
+        },
+        "lastDoneDate": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "intervalMonths": {
+          "type": "integer"
+        },
+        "cost": {
+          "type": "number"
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "vehicleId",
+        "title",
+        "category",
+        "lastDoneKm",
+        "intervalKm",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -171,6 +237,10 @@
     "/users/{userId}/refuelings/{refuelingId}": {
       "schema": { "$ref": "#/entities/Refueling" },
       "description": "Subcoleção de abastecimentos do usuário vinculados a um veículo existente."
+    },
+    "/users/{userId}/maintenances/{maintenanceId}": {
+      "schema": { "$ref": "#/entities/MaintenanceItem" },
+      "description": "Subcoleção de manutenções preventivas vinculadas a um veículo do usuário."
     }
   }
 }

@@ -10,10 +10,24 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { FuelType, Refueling, Vehicle } from './types';
+import {
+  FuelType,
+  MaintenanceCategory,
+  MaintenanceItem,
+  Refueling,
+  Vehicle,
+} from './types';
 
 const VALID_ID_REGEX = /^[a-zA-Z0-9_-]+$/;
 const VALID_FUELS: FuelType[] = ['Gasolina', 'Etanol', 'Diesel', 'GNV'];
+const VALID_MAINTENANCE_CATEGORIES: MaintenanceCategory[] = [
+  'Motor & Óleo',
+  'Freios',
+  'Pneus & Suspensão',
+  'Filtros',
+  'Elétrica',
+  'Geral',
+];
 
 function sanitizeId(raw: string, fallbackPrefix: string): string {
   const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 120);
@@ -27,6 +41,12 @@ function clampString(val: string, maxLen: number): string {
 
 function clampFuel(fuel: FuelType): FuelType {
   return VALID_FUELS.includes(fuel) ? fuel : 'Gasolina';
+}
+
+function clampMaintenanceCategory(
+  category: MaintenanceCategory
+): MaintenanceCategory {
+  return VALID_MAINTENANCE_CATEGORIES.includes(category) ? category : 'Geral';
 }
 
 export async function ensureUserProfile(user: User): Promise<string | null> {
@@ -174,13 +194,17 @@ export async function syncVehicleOdometerDoc(
 export async function deleteVehicleWithRefuelings(
   uid: string,
   vehicleId: string,
-  refuelingIds: string[]
+  refuelingIds: string[],
+  maintenanceIds: string[] = []
 ): Promise<void> {
   const path = `users/${uid}/vehicles/${vehicleId}`;
   try {
     const batch = writeBatch(db);
     for (const rid of refuelingIds) {
       batch.delete(doc(db, 'users', uid, 'refuelings', rid));
+    }
+    for (const mid of maintenanceIds) {
+      batch.delete(doc(db, 'users', uid, 'maintenances', mid));
     }
     batch.delete(doc(db, 'users', uid, 'vehicles', vehicleId));
     await batch.commit();
@@ -277,29 +301,144 @@ export async function deleteRefuelingDoc(
   }
 }
 
+export async function createMaintenanceDoc(
+  uid: string,
+  data: Omit<MaintenanceItem, 'id' | 'createdAt'>,
+  explicitId?: string
+): Promise<string> {
+  const maintenanceId = explicitId
+    ? sanitizeId(explicitId, 'mnt')
+    : `mnt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const path = `users/${uid}/maintenances/${maintenanceId}`;
+  const ref = doc(db, 'users', uid, 'maintenances', maintenanceId);
+
+  const payload: Record<string, unknown> = {
+    ownerId: uid,
+    vehicleId: sanitizeId(data.vehicleId, 'veh'),
+    title: clampString(data.title, 80) || 'Manutenção',
+    category: clampMaintenanceCategory(data.category),
+    lastDoneKm: Math.min(10000000, Math.max(0, Math.round(data.lastDoneKm))),
+    intervalKm: Math.min(500000, Math.max(100, Math.round(data.intervalKm))),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (data.lastDoneDate && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(data.lastDoneDate)) {
+    payload.lastDoneDate = data.lastDoneDate;
+  }
+
+  if (
+    data.intervalMonths !== undefined &&
+    Number.isInteger(data.intervalMonths) &&
+    data.intervalMonths >= 1 &&
+    data.intervalMonths <= 120
+  ) {
+    payload.intervalMonths = data.intervalMonths;
+  }
+
+  if (data.cost !== undefined && data.cost >= 0 && data.cost <= 1000000) {
+    payload.cost = Number(data.cost.toFixed(2));
+  }
+
+  const notes = data.notes ? clampString(data.notes, 400) : '';
+  if (notes) payload.notes = notes;
+
+  try {
+    await setDoc(ref, payload);
+    return maintenanceId;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
+  }
+}
+
+export async function updateMaintenanceDoc(
+  uid: string,
+  maintenanceId: string,
+  data: Omit<MaintenanceItem, 'id' | 'createdAt'>
+): Promise<void> {
+  const path = `users/${uid}/maintenances/${maintenanceId}`;
+  const ref = doc(db, 'users', uid, 'maintenances', maintenanceId);
+
+  const validDate =
+    data.lastDoneDate && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(data.lastDoneDate)
+      ? data.lastDoneDate
+      : null;
+  const validMonths =
+    data.intervalMonths !== undefined &&
+    Number.isInteger(data.intervalMonths) &&
+    data.intervalMonths >= 1 &&
+    data.intervalMonths <= 120
+      ? data.intervalMonths
+      : null;
+  const validCost =
+    data.cost !== undefined && data.cost >= 0 && data.cost <= 1000000
+      ? Number(data.cost.toFixed(2))
+      : null;
+  const notes = data.notes ? clampString(data.notes, 400) : '';
+
+  const payload: Record<string, unknown> = {
+    title: clampString(data.title, 80) || 'Manutenção',
+    category: clampMaintenanceCategory(data.category),
+    lastDoneKm: Math.min(10000000, Math.max(0, Math.round(data.lastDoneKm))),
+    intervalKm: Math.min(500000, Math.max(100, Math.round(data.intervalKm))),
+    lastDoneDate: validDate ?? deleteField(),
+    intervalMonths: validMonths ?? deleteField(),
+    cost: validCost ?? deleteField(),
+    notes: notes ? notes : deleteField(),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    await updateDoc(ref, payload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteMaintenanceDoc(
+  uid: string,
+  maintenanceId: string
+): Promise<void> {
+  const path = `users/${uid}/maintenances/${maintenanceId}`;
+  try {
+    await deleteDoc(doc(db, 'users', uid, 'maintenances', maintenanceId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
 export async function replaceWorkspaceInFirestore(
   uid: string,
   existingVehicleIds: string[],
   existingRefuelingIds: string[],
   newVehicles: Vehicle[],
   newRefuelings: Refueling[],
-  activeVehicleId: string | null
+  activeVehicleId: string | null,
+  existingMaintenanceIds: string[] = [],
+  newMaintenances: MaintenanceItem[] = []
 ): Promise<void> {
   const basePath = `users/${uid}`;
   try {
     // Delete existing documents first
     const deleteBatch = writeBatch(db);
+    for (const mid of existingMaintenanceIds) {
+      deleteBatch.delete(doc(db, 'users', uid, 'maintenances', mid));
+    }
     for (const rid of existingRefuelingIds) {
       deleteBatch.delete(doc(db, 'users', uid, 'refuelings', rid));
     }
     for (const vid of existingVehicleIds) {
       deleteBatch.delete(doc(db, 'users', uid, 'vehicles', vid));
     }
-    if (existingRefuelingIds.length > 0 || existingVehicleIds.length > 0) {
+    if (
+      existingMaintenanceIds.length > 0 ||
+      existingRefuelingIds.length > 0 ||
+      existingVehicleIds.length > 0
+    ) {
       await deleteBatch.commit();
     }
 
-    // Create vehicles first so refuelings pass exists() Master Gate check
+    // Create vehicles first so refuelings & maintenances pass exists() Master Gate check
     const idMap = new Map<string, string>();
     for (const v of newVehicles) {
       const safeVid = sanitizeId(v.id, 'veh');
@@ -332,6 +471,22 @@ export async function replaceWorkspaceInFirestore(
         fullTank: r.fullTank,
         station: r.station,
         notes: r.notes,
+      });
+    }
+
+    for (const m of newMaintenances) {
+      const mappedVehicleId = idMap.get(m.vehicleId);
+      if (!mappedVehicleId) continue;
+      await createMaintenanceDoc(uid, {
+        vehicleId: mappedVehicleId,
+        title: m.title,
+        category: m.category,
+        lastDoneKm: m.lastDoneKm,
+        intervalKm: m.intervalKm,
+        lastDoneDate: m.lastDoneDate,
+        intervalMonths: m.intervalMonths,
+        cost: m.cost,
+        notes: m.notes,
       });
     }
 
