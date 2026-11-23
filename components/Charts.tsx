@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { formatDecimal } from '@/lib/calculations';
 
 export interface ChartPoint {
@@ -21,7 +21,7 @@ interface TrendLineChartProps {
   emptyMessage?: string;
 }
 
-export function TrendLineChart({
+export const TrendLineChart = React.memo(function TrendLineChart({
   title,
   subtitle,
   data,
@@ -31,6 +31,7 @@ export function TrendLineChart({
   emptyMessage = 'Sem dados suficientes no período selecionado.',
 }: TrendLineChartProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const handleMouseLeave = useCallback(() => setHoveredIdx(null), []);
 
   const chartGeom = useMemo(() => {
     if (data.length === 0) return null;
@@ -141,7 +142,7 @@ export function TrendLineChart({
             className="w-full h-auto overflow-visible select-none"
             role="img"
             aria-label={title}
-            onMouseLeave={() => setHoveredIdx(null)}
+            onMouseLeave={handleMouseLeave}
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -252,7 +253,7 @@ export function TrendLineChart({
       )}
     </div>
   );
-}
+});
 
 interface ColumnBarChartProps {
   title: string;
@@ -264,7 +265,7 @@ interface ColumnBarChartProps {
   emptyMessage?: string;
 }
 
-export function ColumnBarChart({
+export const ColumnBarChart = React.memo(function ColumnBarChart({
   title,
   subtitle,
   data,
@@ -274,6 +275,7 @@ export function ColumnBarChart({
   emptyMessage = 'Sem dados suficientes no período selecionado.',
 }: ColumnBarChartProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const handleMouseLeave = useCallback(() => setHoveredIdx(null), []);
 
   const chartGeom = useMemo(() => {
     if (data.length === 0) return null;
@@ -365,7 +367,7 @@ export function ColumnBarChart({
             className="w-full h-auto overflow-visible select-none"
             role="img"
             aria-label={title}
-            onMouseLeave={() => setHoveredIdx(null)}
+            onMouseLeave={handleMouseLeave}
           >
             {chartGeom.ticks.map((tick, i) => (
               <g key={i}>
@@ -442,4 +444,4 @@ export function ColumnBarChart({
       )}
     </div>
   );
-}
+});

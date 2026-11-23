@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Download,
@@ -26,6 +26,205 @@ interface HistoryViewProps {
   onEditRefueling: (refueling: ComputedRefueling) => void;
   onDeleteRefueling: (id: string) => void;
 }
+
+const TANK_FILTER_OPTIONS = [
+  { id: 'ALL', label: 'Todos' },
+  { id: 'FULL', label: 'Tanque completo' },
+  { id: 'PARTIAL', label: 'Parcial' },
+] as const;
+
+interface HistoryItemProps {
+  item: ComputedRefueling;
+  onEdit: (item: ComputedRefueling) => void;
+  onRequestDelete: (item: ComputedRefueling) => void;
+}
+
+const HistoryTableRow = React.memo(function HistoryTableRow({
+  item,
+  onEdit,
+  onRequestDelete,
+}: HistoryItemProps) {
+  const handleEdit = useCallback(() => onEdit(item), [item, onEdit]);
+  const handleDelete = useCallback(
+    () => onRequestDelete(item),
+    [item, onRequestDelete]
+  );
+
+  return (
+    <tr className="hover:bg-[#161B26] transition-colors">
+      <td className="py-3 px-4 font-mono text-xs text-[#F1F5F9] tabular-nums whitespace-nowrap">
+        {formatDateBR(item.date)}
+      </td>
+      <td className="py-3 px-4 max-w-[220px]">
+        <div className="text-sm font-medium text-[#F1F5F9] truncate">
+          {item.station || 'Posto não informado'}
+        </div>
+        <div className="text-xs text-[#94A3B8] truncate">
+          {item.fuelType}
+          {!item.fullTank && ' · Parcial'}
+          {item.notes ? ` · ${item.notes}` : ''}
+        </div>
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#F1F5F9] tabular-nums whitespace-nowrap">
+        {formatKm(item.odometerKm)}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums whitespace-nowrap">
+        {item.distanceKm !== null ? formatKm(item.distanceKm) : '—'}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#F1F5F9] tabular-nums whitespace-nowrap">
+        {formatDecimal(item.liters)} L
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums whitespace-nowrap">
+        {formatCurrency(item.pricePerLiter)}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-sm font-semibold text-[#F1F5F9] tabular-nums whitespace-nowrap">
+        {formatCurrency(item.totalPaid)}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs tabular-nums whitespace-nowrap">
+        {item.isFirstRecord ? (
+          <span className="text-[#64748B]">1º registro</span>
+        ) : item.consumptionKmPerL !== null ? (
+          <span
+            className={`inline-flex items-center gap-1 font-semibold ${
+              item.isEstimated ? 'text-amber-300' : 'text-[#38BDF8]'
+            }`}
+            title={
+              item.isEstimated
+                ? 'Estimado: envolve abastecimento parcial'
+                : 'Medição com tanque completo'
+            }
+          >
+            {item.isEstimated && (
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            {formatDecimal(item.consumptionKmPerL)} km/l
+            {item.isEstimated ? ' (est.)' : ''}
+          </span>
+        ) : (
+          '—'
+        )}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums whitespace-nowrap">
+        {item.costPerKm !== null ? `${formatCurrency(item.costPerKm)}/km` : '—'}
+      </td>
+      <td className="py-3 px-4 text-right whitespace-nowrap">
+        <div className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleEdit}
+            className="p-2 rounded-lg text-[#94A3B8] hover:text-white hover:bg-[#232A3B] transition-colors"
+            aria-label={`Editar abastecimento de ${formatDateBR(item.date)}`}
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="p-2 rounded-lg text-[#94A3B8] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            aria-label={`Excluir abastecimento de ${formatDateBR(item.date)}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
+
+const HistoryMobileCard = React.memo(function HistoryMobileCard({
+  item,
+  onEdit,
+  onRequestDelete,
+}: HistoryItemProps) {
+  const handleEdit = useCallback(() => onEdit(item), [item, onEdit]);
+  const handleDelete = useCallback(
+    () => onRequestDelete(item),
+    [item, onRequestDelete]
+  );
+
+  return (
+    <div className="bg-[#12161F] border border-[#232A3B] rounded-xl p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-[#F1F5F9] truncate">
+            {item.station || 'Posto não informado'}
+          </div>
+          <div className="text-xs text-[#94A3B8] mt-0.5 font-mono tabular-nums">
+            {formatDateBR(item.date)} · {item.fuelType}
+            {!item.fullTank ? ' · Parcial' : ''}
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="font-mono text-base font-bold text-[#F1F5F9] tabular-nums">
+            {formatCurrency(item.totalPaid)}
+          </div>
+          <div className="font-mono text-xs text-[#94A3B8] tabular-nums">
+            {formatDecimal(item.liters)} L · {formatCurrency(item.pricePerLiter)}
+            /L
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-[#1E2534] text-xs">
+        <div>
+          <span className="text-[#64748B] block">Quilometragem</span>
+          <span className="font-mono text-[#F1F5F9] tabular-nums">
+            {formatKm(item.odometerKm)}
+          </span>
+        </div>
+        <div>
+          <span className="text-[#64748B] block">Distância</span>
+          <span className="font-mono text-[#F1F5F9] tabular-nums">
+            {item.distanceKm !== null
+              ? formatKm(item.distanceKm)
+              : '1º registro'}
+          </span>
+        </div>
+        <div>
+          <span className="text-[#64748B] block">Consumo médio</span>
+          <span
+            className={`font-mono font-semibold tabular-nums ${
+              item.isEstimated ? 'text-amber-300' : 'text-[#38BDF8]'
+            }`}
+          >
+            {item.consumptionKmPerL !== null
+              ? `${formatDecimal(item.consumptionKmPerL)} km/l${item.isEstimated ? ' (est.)' : ''}`
+              : '—'}
+          </span>
+        </div>
+        <div>
+          <span className="text-[#64748B] block">Custo por km</span>
+          <span className="font-mono text-[#F1F5F9] tabular-nums">
+            {item.costPerKm !== null
+              ? `${formatCurrency(item.costPerKm)}/km`
+              : '—'}
+          </span>
+        </div>
+      </div>
+
+      {item.notes && <p className="text-xs text-[#94A3B8] pt-1">{item.notes}</p>}
+
+      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1E2534]">
+        <button
+          type="button"
+          onClick={handleEdit}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-[#CBD5E1] bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] transition-colors"
+        >
+          <Edit2 className="w-3.5 h-3.5" />
+          Editar
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-red-400 bg-[#0B0D12] border border-[#232A3B] hover:border-red-500/40 transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          Excluir
+        </button>
+      </div>
+    </div>
+  );
+});
 
 export const HistoryView = React.memo(function HistoryView({
   vehicle,
@@ -57,6 +256,22 @@ export const HistoryView = React.memo(function HistoryView({
         return true;
       });
   }, [computed, search, fuelFilter, tankFilter]);
+
+  const handleExportCSV = useCallback(() => {
+    if (vehicle) exportRefuelingsToCSV(vehicle, computed);
+  }, [vehicle, computed]);
+
+  const handleRequestDelete = useCallback((item: ComputedRefueling) => {
+    setDeletingItem(item);
+  }, []);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deletingItem) onDeleteRefueling(deletingItem.id);
+  }, [deletingItem, onDeleteRefueling]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeletingItem(null);
+  }, []);
 
   if (!vehicle) {
     return (
@@ -90,7 +305,7 @@ export const HistoryView = React.memo(function HistoryView({
           <button
             type="button"
             disabled={computed.length === 0}
-            onClick={() => exportRefuelingsToCSV(vehicle, computed)}
+            onClick={handleExportCSV}
             className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#12161F] border border-[#232A3B] hover:border-[#3B82F6] text-sm font-medium text-[#F1F5F9] disabled:opacity-40 disabled:pointer-events-none transition-colors whitespace-nowrap shrink-0"
           >
             <Download className="w-4 h-4 text-[#38BDF8]" />
@@ -135,13 +350,7 @@ export const HistoryView = React.memo(function HistoryView({
           </select>
 
           <div className="flex items-center gap-1 p-1 bg-[#0B0D12] border border-[#232A3B] rounded-lg">
-            {(
-              [
-                { id: 'ALL', label: 'Todos' },
-                { id: 'FULL', label: 'Tanque completo' },
-                { id: 'PARTIAL', label: 'Parcial' },
-              ] as const
-            ).map((opt) => (
+            {TANK_FILTER_OPTIONS.map((opt) => (
               <button
                 key={opt.id}
                 type="button"
@@ -200,92 +409,12 @@ export const HistoryView = React.memo(function HistoryView({
                 </thead>
                 <tbody className="divide-y divide-[#1D2332] text-sm">
                   {filtered.map((item) => (
-                    <tr
+                    <HistoryTableRow
                       key={item.id}
-                      className="hover:bg-[#161B26] transition-colors"
-                    >
-                      <td className="py-3 px-4 font-mono text-xs text-[#F1F5F9] tabular-nums whitespace-nowrap">
-                        {formatDateBR(item.date)}
-                      </td>
-                      <td className="py-3 px-4 max-w-[220px]">
-                        <div className="text-sm font-medium text-[#F1F5F9] truncate">
-                          {item.station || 'Posto não informado'}
-                        </div>
-                        <div className="text-xs text-[#94A3B8] truncate">
-                          {item.fuelType}
-                          {!item.fullTank && ' · Parcial'}
-                          {item.notes ? ` · ${item.notes}` : ''}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-[#F1F5F9] tabular-nums whitespace-nowrap">
-                        {formatKm(item.odometerKm)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums whitespace-nowrap">
-                        {item.distanceKm !== null
-                          ? formatKm(item.distanceKm)
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-[#F1F5F9] tabular-nums whitespace-nowrap">
-                        {formatDecimal(item.liters)} L
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums whitespace-nowrap">
-                        {formatCurrency(item.pricePerLiter)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-sm font-semibold text-[#F1F5F9] tabular-nums whitespace-nowrap">
-                        {formatCurrency(item.totalPaid)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs tabular-nums whitespace-nowrap">
-                        {item.isFirstRecord ? (
-                          <span className="text-[#64748B]">1º registro</span>
-                        ) : item.consumptionKmPerL !== null ? (
-                          <span
-                            className={`inline-flex items-center gap-1 font-semibold ${
-                              item.isEstimated
-                                ? 'text-amber-300'
-                                : 'text-[#38BDF8]'
-                            }`}
-                            title={
-                              item.isEstimated
-                                ? 'Estimado: envolve abastecimento parcial'
-                                : 'Medição com tanque completo'
-                            }
-                          >
-                            {item.isEstimated && (
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                            )}
-                            {formatDecimal(item.consumptionKmPerL)} km/l
-                            {item.isEstimated ? ' (est.)' : ''}
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums whitespace-nowrap">
-                        {item.costPerKm !== null
-                          ? `${formatCurrency(item.costPerKm)}/km`
-                          : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => onEditRefueling(item)}
-                            className="p-2 rounded-lg text-[#94A3B8] hover:text-white hover:bg-[#232A3B] transition-colors"
-                            aria-label={`Editar abastecimento de ${formatDateBR(item.date)}`}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeletingItem(item)}
-                            className="p-2 rounded-lg text-[#94A3B8] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                            aria-label={`Excluir abastecimento de ${formatDateBR(item.date)}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      item={item}
+                      onEdit={onEditRefueling}
+                      onRequestDelete={handleRequestDelete}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -295,91 +424,12 @@ export const HistoryView = React.memo(function HistoryView({
           {/* Mobile Card List */}
           <div className="md:hidden space-y-3">
             {filtered.map((item) => (
-              <div
+              <HistoryMobileCard
                 key={item.id}
-                className="bg-[#12161F] border border-[#232A3B] rounded-xl p-4 space-y-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[#F1F5F9] truncate">
-                      {item.station || 'Posto não informado'}
-                    </div>
-                    <div className="text-xs text-[#94A3B8] mt-0.5 font-mono tabular-nums">
-                      {formatDateBR(item.date)} · {item.fuelType}
-                      {!item.fullTank ? ' · Parcial' : ''}
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-mono text-base font-bold text-[#F1F5F9] tabular-nums">
-                      {formatCurrency(item.totalPaid)}
-                    </div>
-                    <div className="font-mono text-xs text-[#94A3B8] tabular-nums">
-                      {formatDecimal(item.liters)} L ·{' '}
-                      {formatCurrency(item.pricePerLiter)}/L
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-[#1E2534] text-xs">
-                  <div>
-                    <span className="text-[#64748B] block">Quilometragem</span>
-                    <span className="font-mono text-[#F1F5F9] tabular-nums">
-                      {formatKm(item.odometerKm)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#64748B] block">Distância</span>
-                    <span className="font-mono text-[#F1F5F9] tabular-nums">
-                      {item.distanceKm !== null
-                        ? formatKm(item.distanceKm)
-                        : '1º registro'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#64748B] block">Consumo médio</span>
-                    <span
-                      className={`font-mono font-semibold tabular-nums ${
-                        item.isEstimated ? 'text-amber-300' : 'text-[#38BDF8]'
-                      }`}
-                    >
-                      {item.consumptionKmPerL !== null
-                        ? `${formatDecimal(item.consumptionKmPerL)} km/l${item.isEstimated ? ' (est.)' : ''}`
-                        : '—'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[#64748B] block">Custo por km</span>
-                    <span className="font-mono text-[#F1F5F9] tabular-nums">
-                      {item.costPerKm !== null
-                        ? `${formatCurrency(item.costPerKm)}/km`
-                        : '—'}
-                    </span>
-                  </div>
-                </div>
-
-                {item.notes && (
-                  <p className="text-xs text-[#94A3B8] pt-1">{item.notes}</p>
-                )}
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#1E2534]">
-                  <button
-                    type="button"
-                    onClick={() => onEditRefueling(item)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-[#CBD5E1] bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] transition-colors"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDeletingItem(item)}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-red-400 bg-[#0B0D12] border border-[#232A3B] hover:border-red-500/40 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Excluir
-                  </button>
-                </div>
-              </div>
+                item={item}
+                onEdit={onEditRefueling}
+                onRequestDelete={handleRequestDelete}
+              />
             ))}
           </div>
         </>
@@ -394,10 +444,8 @@ export const HistoryView = React.memo(function HistoryView({
             : ''
         }
         confirmLabel="Excluir registro"
-        onConfirm={() => {
-          if (deletingItem) onDeleteRefueling(deletingItem.id);
-        }}
-        onCancel={() => setDeletingItem(null)}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
       />
     </div>
   );

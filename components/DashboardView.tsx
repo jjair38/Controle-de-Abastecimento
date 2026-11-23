@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -27,11 +27,76 @@ import {
 } from '@/lib/calculations';
 import {
   ActiveTab,
+  AlertItem,
   ComputedMaintenanceItem,
   ComputedRefueling,
   Vehicle,
 } from '@/lib/types';
 import { TrendLineChart } from './Charts';
+
+const AlertCard = React.memo(function AlertCard({
+  alert,
+  onNavigate,
+}: {
+  alert: AlertItem;
+  onNavigate: (tab: ActiveTab) => void;
+}) {
+  const Icon =
+    alert.severity === 'danger'
+      ? AlertCircle
+      : alert.severity === 'warning'
+        ? AlertTriangle
+        : Bell;
+  const toneClass =
+    alert.severity === 'danger'
+      ? 'border-red-500/35 bg-red-500/[0.06]'
+      : alert.severity === 'warning'
+        ? 'border-amber-500/35 bg-amber-500/[0.06]'
+        : 'border-[#2563EB]/35 bg-[#2563EB]/[0.06]';
+  const iconColor =
+    alert.severity === 'danger'
+      ? 'text-red-400'
+      : alert.severity === 'warning'
+        ? 'text-amber-400'
+        : 'text-[#38BDF8]';
+
+  const handleNavigate = useCallback(() => {
+    if (alert.targetTab) onNavigate(alert.targetTab);
+  }, [alert.targetTab, onNavigate]);
+
+  return (
+    <div
+      className={`rounded-xl border p-4 flex items-start justify-between gap-4 ${toneClass}`}
+    >
+      <div className="flex items-start gap-3 min-w-0">
+        <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${iconColor}`} />
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-[#F1F5F9]">
+            {alert.title}
+          </h3>
+          <p className="text-xs text-[#CBD5E1] mt-1 leading-relaxed">
+            {alert.description}
+          </p>
+          {alert.targetTab && (
+            <button
+              type="button"
+              onClick={handleNavigate}
+              className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] hover:text-white transition-colors"
+            >
+              Abrir manutenções
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      <span
+        className={`font-mono text-xs font-semibold tabular-nums shrink-0 ${iconColor}`}
+      >
+        {alert.metricLabel}
+      </span>
+    </div>
+  );
+});
 
 interface DashboardViewProps {
   vehicle: Vehicle | null;
@@ -86,6 +151,25 @@ export const DashboardView = React.memo(function DashboardView({
       value: Number(b.totalSpent.toFixed(2)),
     }));
   }, [computed]);
+
+  const formatConsumptionValue = useCallback(
+    (v: number) => `${formatDecimal(v)} km/l`,
+    []
+  );
+  const handleVehicleChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      onSelectVehicle(e.target.value);
+    },
+    [onSelectVehicle]
+  );
+  const handleNavigateHistory = useCallback(
+    () => onNavigate('history'),
+    [onNavigate]
+  );
+  const handleNavigateReports = useCallback(
+    () => onNavigate('reports'),
+    [onNavigate]
+  );
 
   if (!vehicle) {
     return (
@@ -152,7 +236,7 @@ export const DashboardView = React.memo(function DashboardView({
             <select
               aria-label="Selecionar veículo"
               value={vehicle.id}
-              onChange={(e) => onSelectVehicle(e.target.value)}
+              onChange={handleVehicleChange}
               className="h-10 px-3.5 rounded-lg bg-[#0B0D12] border border-[#232A3B] text-sm text-[#F1F5F9] focus:outline-none focus:border-[#3B82F6]"
             >
               {vehicles.map((v) => (
@@ -305,7 +389,7 @@ export const DashboardView = React.memo(function DashboardView({
               </h2>
               <button
                 type="button"
-                onClick={() => onNavigate('history')}
+                onClick={handleNavigateHistory}
                 className="inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] hover:text-white transition-colors whitespace-nowrap shrink-0"
               >
                 Ver histórico
@@ -428,7 +512,7 @@ export const DashboardView = React.memo(function DashboardView({
             subtitle="Últimos trechos medidos em km/l (pontos vazados indicam estimativa parcial)"
             data={recentConsumptionChart}
             unit="km/l"
-            valueFormatter={(v) => `${formatDecimal(v)} km/l`}
+            valueFormatter={formatConsumptionValue}
             emptyMessage="Registre pelo menos 2 abastecimentos para visualizar a curva de consumo."
           />
           {monthlySpendChart.length > 0 && (
@@ -439,7 +523,7 @@ export const DashboardView = React.memo(function DashboardView({
               </span>
               <button
                 type="button"
-                onClick={() => onNavigate('reports')}
+                onClick={handleNavigateReports}
                 className="inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] hover:text-white transition-colors whitespace-nowrap shrink-0 ml-3"
               >
                 Abrir relatórios
@@ -478,60 +562,13 @@ export const DashboardView = React.memo(function DashboardView({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {alerts.map((alert) => {
-              const Icon =
-                alert.severity === 'danger'
-                  ? AlertCircle
-                  : alert.severity === 'warning'
-                    ? AlertTriangle
-                    : Bell;
-              const toneClass =
-                alert.severity === 'danger'
-                  ? 'border-red-500/35 bg-red-500/[0.06]'
-                  : alert.severity === 'warning'
-                    ? 'border-amber-500/35 bg-amber-500/[0.06]'
-                    : 'border-[#2563EB]/35 bg-[#2563EB]/[0.06]';
-              const iconColor =
-                alert.severity === 'danger'
-                  ? 'text-red-400'
-                  : alert.severity === 'warning'
-                    ? 'text-amber-400'
-                    : 'text-[#38BDF8]';
-
-              return (
-                <div
-                  key={alert.id}
-                  className={`rounded-xl border p-4 flex items-start justify-between gap-4 ${toneClass}`}
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${iconColor}`} />
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-semibold text-[#F1F5F9]">
-                        {alert.title}
-                      </h3>
-                      <p className="text-xs text-[#CBD5E1] mt-1 leading-relaxed">
-                        {alert.description}
-                      </p>
-                      {alert.targetTab && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigate(alert.targetTab!)}
-                          className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] hover:text-white transition-colors"
-                        >
-                          Abrir manutenções
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <span
-                    className={`font-mono text-xs font-semibold tabular-nums shrink-0 ${iconColor}`}
-                  >
-                    {alert.metricLabel}
-                  </span>
-                </div>
-              );
-            })}
+            {alerts.map((alert) => (
+              <AlertCard
+                key={alert.id}
+                alert={alert}
+                onNavigate={onNavigate}
+              />
+            ))}
           </div>
         )}
       </section>

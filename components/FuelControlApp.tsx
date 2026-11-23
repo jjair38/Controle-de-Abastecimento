@@ -640,6 +640,72 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
     void signOut(auth);
   }, []);
 
+  const handleSelectVehicleAndGoDashboard = useCallback(
+    (id: string) => {
+      handleSelectVehicle(id);
+      setActiveTab('dashboard');
+    },
+    [handleSelectVehicle]
+  );
+
+  const handleExportBackup = useCallback(() => {
+    exportBackupJSON({
+      version: 1,
+      vehicles,
+      refuelings,
+      maintenances,
+      activeVehicleId: activeVehicle?.id ?? null,
+    });
+  }, [vehicles, refuelings, maintenances, activeVehicle]);
+
+  const handleLoadDemo = useCallback(() => {
+    const demo = createSeedData();
+    runCloudOp(() =>
+      replaceWorkspaceInFirestore(
+        user.uid,
+        vehicles.map((v) => v.id),
+        refuelings.map((r) => r.id),
+        demo.vehicles,
+        demo.refuelings,
+        demo.activeVehicleId,
+        maintenances.map((m) => m.id),
+        []
+      )
+    );
+  }, [maintenances, refuelings, runCloudOp, user.uid, vehicles]);
+
+  const handleClearAll = useCallback(() => {
+    runCloudOp(() =>
+      replaceWorkspaceInFirestore(
+        user.uid,
+        vehicles.map((v) => v.id),
+        refuelings.map((r) => r.id),
+        [],
+        [],
+        null,
+        maintenances.map((m) => m.id),
+        []
+      )
+    );
+  }, [maintenances, refuelings, runCloudOp, user.uid, vehicles]);
+
+  const handleCloseVehicleModal = useCallback(() => {
+    setVehicleModalOpen(false);
+    setEditingVehicle(null);
+  }, []);
+
+  const handleCloseRefuelingModal = useCallback(() => {
+    setRefuelingModalOpen(false);
+    setEditingRefueling(null);
+  }, []);
+
+  const handleCloseMaintenanceModal = useCallback(() => {
+    setMaintenanceModalOpen(false);
+    setEditingMaintenance(null);
+    setMaintenanceRenewMode(false);
+    setMaintenancePreset(null);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#0B0D12] text-[#F1F5F9] flex flex-col">
       {/* Top Bar (Strict 3-zone contract) */}
@@ -846,52 +912,14 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
                 vehicles={vehicles}
                 refuelings={refuelings}
                 activeVehicleId={activeVehicle?.id ?? null}
-                onSelectVehicle={(id) => {
-                  handleSelectVehicle(id);
-                  setActiveTab('dashboard');
-                }}
+                onSelectVehicle={handleSelectVehicleAndGoDashboard}
                 onAddVehicle={openAddVehicle}
                 onEditVehicle={openEditVehicle}
                 onDeleteVehicle={handleDeleteVehicle}
-                onExportBackup={() =>
-                  exportBackupJSON({
-                    version: 1,
-                    vehicles,
-                    refuelings,
-                    maintenances,
-                    activeVehicleId: activeVehicle?.id ?? null,
-                  })
-                }
+                onExportBackup={handleExportBackup}
                 onImportBackup={handleImportBackup}
-                onLoadDemo={() => {
-                  const demo = createSeedData();
-                  runCloudOp(() =>
-                    replaceWorkspaceInFirestore(
-                      user.uid,
-                      vehicles.map((v) => v.id),
-                      refuelings.map((r) => r.id),
-                      demo.vehicles,
-                      demo.refuelings,
-                      demo.activeVehicleId,
-                      maintenances.map((m) => m.id),
-                      []
-                    )
-                  );
-                }}
-                onClearAll={() => {
-                  runCloudOp(() =>
-                    replaceWorkspaceInFirestore(
-                      user.uid,
-                      vehicles.map((v) => v.id),
-                      refuelings.map((r) => r.id),
-                      [],
-                      [],
-                      null,
-                      maintenances.map((m) => m.id),
-                      []
-                    )
-                  );
-                }}
+                onLoadDemo={handleLoadDemo}
+                onClearAll={handleClearAll}
                 onSignOut={handleSignOut}
               />
             )}
@@ -926,10 +954,7 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
       <VehicleModal
         isOpen={vehicleModalOpen}
         editingVehicle={editingVehicle}
-        onClose={() => {
-          setVehicleModalOpen(false);
-          setEditingVehicle(null);
-        }}
+        onClose={handleCloseVehicleModal}
         onSave={handleSaveVehicle}
       />
 
@@ -938,10 +963,7 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
         vehicle={activeVehicle}
         vehicleRefuelings={activeVehicleRefuelings}
         editingRefueling={editingRefueling}
-        onClose={() => {
-          setRefuelingModalOpen(false);
-          setEditingRefueling(null);
-        }}
+        onClose={handleCloseRefuelingModal}
         onSave={handleSaveRefueling}
       />
 
@@ -952,12 +974,7 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
         editingItem={editingMaintenance}
         isRenewMode={maintenanceRenewMode}
         initialPreset={maintenancePreset}
-        onClose={() => {
-          setMaintenanceModalOpen(false);
-          setEditingMaintenance(null);
-          setMaintenanceRenewMode(false);
-          setMaintenancePreset(null);
-        }}
+        onClose={handleCloseMaintenanceModal}
         onSave={handleSaveMaintenance}
       />
     </div>

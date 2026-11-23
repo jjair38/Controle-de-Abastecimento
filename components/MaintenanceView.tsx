@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -13,11 +13,7 @@ import {
   Wallet,
   Wrench,
 } from 'lucide-react';
-import {
-  formatCurrency,
-  formatDateBR,
-  formatKm,
-} from '@/lib/calculations';
+import { formatCurrency, formatDateBR, formatKm } from '@/lib/calculations';
 import {
   ComputedMaintenanceItem,
   MaintenanceCategory,
@@ -47,6 +43,194 @@ const CATEGORY_FILTER_OPTIONS: ('ALL' | MaintenanceCategory)[] = [
   'Elétrica',
   'Geral',
 ];
+
+const STATUS_FILTER_OPTIONS = [
+  { id: 'ALL', label: 'Todas' },
+  { id: 'ATTENTION', label: 'Atenção / Vencidas' },
+  { id: 'OK', label: 'Em dia' },
+] as const;
+
+interface MaintenanceCardProps {
+  item: ComputedMaintenanceItem;
+  onRenew: (item: MaintenanceItem) => void;
+  onEdit: (item: MaintenanceItem) => void;
+  onRequestDelete: (item: ComputedMaintenanceItem) => void;
+}
+
+const MaintenanceCard = React.memo(function MaintenanceCard({
+  item,
+  onRenew,
+  onEdit,
+  onRequestDelete,
+}: MaintenanceCardProps) {
+  const handleRenew = useCallback(() => onRenew(item), [item, onRenew]);
+  const handleEdit = useCallback(() => onEdit(item), [item, onEdit]);
+  const handleDelete = useCallback(
+    () => onRequestDelete(item),
+    [item, onRequestDelete]
+  );
+
+  const isOverdue = item.status === 'overdue';
+  const isSoon = item.status === 'due_soon';
+
+  const borderTone = isOverdue
+    ? 'border-red-500/40'
+    : isSoon
+      ? 'border-amber-500/40'
+      : 'border-[#232A3B]';
+  const barColor = isOverdue
+    ? 'bg-red-500'
+    : isSoon
+      ? 'bg-amber-400'
+      : 'bg-[#38BDF8]';
+  const statusTextColor = isOverdue
+    ? 'text-red-400'
+    : isSoon
+      ? 'text-amber-300'
+      : 'text-emerald-400';
+
+  const StatusIcon = isOverdue
+    ? AlertCircle
+    : isSoon
+      ? AlertTriangle
+      : CheckCircle2;
+
+  const statusLabel = isOverdue
+    ? item.kmRemaining <= 0
+      ? `Vencida · +${formatKm(Math.abs(item.kmRemaining))} de atraso`
+      : 'Vencida por prazo'
+    : isSoon
+      ? item.kmRemaining <=
+        Math.min(1500, Math.max(500, Math.round(item.intervalKm * 0.15)))
+        ? `Próxima · Faltam ${formatKm(item.kmRemaining)}`
+        : `Próxima · ${item.daysRemaining} dia(s)`
+      : `Em dia · Faltam ${formatKm(item.kmRemaining)}`;
+
+  return (
+    <div
+      className={`bg-[#12161F] border ${borderTone} rounded-xl p-5 flex flex-col justify-between gap-4`}
+    >
+      <div className="space-y-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs text-[#94A3B8] flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span>{item.category}</span>
+              <span aria-hidden="true">·</span>
+              <span className="font-mono tabular-nums">
+                A cada {formatKm(item.intervalKm)}
+              </span>
+              {item.cost !== undefined && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-mono tabular-nums">
+                    {formatCurrency(item.cost)}
+                  </span>
+                </>
+              )}
+            </div>
+            <h2 className="font-display text-lg font-semibold text-[#F1F5F9] truncate mt-0.5">
+              {item.title}
+            </h2>
+          </div>
+
+          <div
+            className={`inline-flex items-center gap-1.5 text-xs font-semibold shrink-0 font-mono tabular-nums ${statusTextColor}`}
+          >
+            <StatusIcon className="w-4 h-4 shrink-0" />
+            <span>{statusLabel}</span>
+          </div>
+        </div>
+
+        {/* Progress bar */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs font-mono tabular-nums">
+            <span className="text-[#CBD5E1]">
+              Rodados: {formatKm(item.kmDrivenSinceLast)} /{' '}
+              {formatKm(item.intervalKm)}
+            </span>
+            <span className="text-[#94A3B8]">
+              {Math.round(item.progressPct)}%
+            </span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-[#0B0D12] overflow-hidden">
+            <div
+              className={`h-full rounded-full ${barColor}`}
+              style={{ width: `${Math.min(100, item.progressPct)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* KM details row */}
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-[#1E2534] text-xs">
+          <div>
+            <span className="text-[#64748B] block">Última troca</span>
+            <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
+              {formatKm(item.lastDoneKm)}
+            </span>
+          </div>
+          <div>
+            <span className="text-[#64748B] block">Odômetro atual</span>
+            <span className="font-mono text-[#CBD5E1] tabular-nums mt-0.5 block">
+              {formatKm(item.currentOdometerKm)}
+            </span>
+          </div>
+          <div>
+            <span className="text-[#64748B] block">Próxima troca</span>
+            <span className="font-mono text-[#38BDF8] font-semibold tabular-nums mt-0.5 block">
+              {formatKm(item.nextDueKm)}
+            </span>
+          </div>
+        </div>
+
+        {(item.lastDoneDate || item.nextDueDate || item.notes) && (
+          <div className="text-xs text-[#94A3B8] space-y-1">
+            {(item.lastDoneDate || item.nextDueDate) && (
+              <div className="font-mono tabular-nums">
+                {item.lastDoneDate &&
+                  `Feita em ${formatDateBR(item.lastDoneDate)}`}
+                {item.lastDoneDate && item.nextDueDate && ' · '}
+                {item.nextDueDate &&
+                  `Limite temporal: ${formatDateBR(item.nextDueDate)}`}
+              </div>
+            )}
+            {item.notes && <p className="text-[#CBD5E1]">{item.notes}</p>}
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-between gap-2 pt-3 border-t border-[#1E2534]">
+        <button
+          type="button"
+          onClick={handleRenew}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-semibold text-white transition-colors whitespace-nowrap shrink-0"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Registrar troca
+        </button>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleEdit}
+            className="p-2 rounded-lg text-[#94A3B8] hover:text-white hover:bg-[#232A3B] transition-colors"
+            aria-label={`Editar ${item.title}`}
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="p-2 rounded-lg text-[#94A3B8] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            aria-label={`Excluir ${item.title}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export const MaintenanceView = React.memo(function MaintenanceView({
   vehicle,
@@ -108,6 +292,26 @@ export const MaintenanceView = React.memo(function MaintenanceView({
     });
   }, [computedMaintenances, statusFilter, categoryFilter, search]);
 
+  const handleOpenNew = useCallback(() => {
+    onAddMaintenance();
+  }, [onAddMaintenance]);
+
+  const handleQuickCreateOil = useCallback(() => {
+    onQuickCreatePreset(MAINTENANCE_PRESETS[0]);
+  }, [onQuickCreatePreset]);
+
+  const handleRequestDelete = useCallback((item: ComputedMaintenanceItem) => {
+    setDeletingItem(item);
+  }, []);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deletingItem) onDeleteMaintenance(deletingItem.id);
+  }, [deletingItem, onDeleteMaintenance]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeletingItem(null);
+  }, []);
+
   if (!vehicle) {
     return (
       <div className="bg-[#12161F] border border-[#232A3B] rounded-xl p-8 text-center">
@@ -125,7 +329,9 @@ export const MaintenanceView = React.memo(function MaintenanceView({
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-[#12161F] border border-[#232A3B] rounded-xl p-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-[#94A3B8]">
-            <span>{vehicle.brand} {vehicle.name}</span>
+            <span>
+              {vehicle.brand} {vehicle.name}
+            </span>
             <span aria-hidden="true">·</span>
             <span className="font-mono tabular-nums text-[#38BDF8]">
               Odômetro atual: {formatKm(effectiveOdometerKm)}
@@ -140,7 +346,7 @@ export const MaintenanceView = React.memo(function MaintenanceView({
 
         <button
           type="button"
-          onClick={() => onAddMaintenance()}
+          onClick={handleOpenNew}
           className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-sm font-semibold text-white transition-colors whitespace-nowrap shrink-0 self-start lg:self-auto"
         >
           <Plus className="w-4 h-4" />
@@ -228,13 +434,7 @@ export const MaintenanceView = React.memo(function MaintenanceView({
             </select>
 
             <div className="flex items-center gap-1 p-1 bg-[#0B0D12] border border-[#232A3B] rounded-lg">
-              {(
-                [
-                  { id: 'ALL', label: 'Todas' },
-                  { id: 'ATTENTION', label: 'Atenção / Vencidas' },
-                  { id: 'OK', label: 'Em dia' },
-                ] as const
-              ).map((opt) => (
+              {STATUS_FILTER_OPTIONS.map((opt) => (
                 <button
                   key={opt.id}
                   type="button"
@@ -273,7 +473,7 @@ export const MaintenanceView = React.memo(function MaintenanceView({
           <div className="flex flex-wrap items-center justify-center gap-2.5">
             <button
               type="button"
-              onClick={() => onQuickCreatePreset(MAINTENANCE_PRESETS[0])}
+              onClick={handleQuickCreateOil}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-xs sm:text-sm font-semibold text-white transition-colors whitespace-nowrap"
             >
               <Plus className="w-4 h-4" />
@@ -281,7 +481,7 @@ export const MaintenanceView = React.memo(function MaintenanceView({
             </button>
             <button
               type="button"
-              onClick={() => onAddMaintenance()}
+              onClick={handleOpenNew}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] text-xs sm:text-sm font-medium text-[#F1F5F9] transition-colors whitespace-nowrap"
             >
               Adicionar item personalizado
@@ -296,169 +496,15 @@ export const MaintenanceView = React.memo(function MaintenanceView({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredItems.map((item) => {
-            const isOverdue = item.status === 'overdue';
-            const isSoon = item.status === 'due_soon';
-
-            const borderTone = isOverdue
-              ? 'border-red-500/40'
-              : isSoon
-                ? 'border-amber-500/40'
-                : 'border-[#232A3B]';
-            const barColor = isOverdue
-              ? 'bg-red-500'
-              : isSoon
-                ? 'bg-amber-400'
-                : 'bg-[#38BDF8]';
-            const statusTextColor = isOverdue
-              ? 'text-red-400'
-              : isSoon
-                ? 'text-amber-300'
-                : 'text-emerald-400';
-
-            const StatusIcon = isOverdue
-              ? AlertCircle
-              : isSoon
-                ? AlertTriangle
-                : CheckCircle2;
-
-            const statusLabel = isOverdue
-              ? item.kmRemaining <= 0
-                ? `Vencida · +${formatKm(Math.abs(item.kmRemaining))} de atraso`
-                : 'Vencida por prazo'
-              : isSoon
-                ? item.kmRemaining <=
-                  Math.min(1500, Math.max(500, Math.round(item.intervalKm * 0.15)))
-                  ? `Próxima · Faltam ${formatKm(item.kmRemaining)}`
-                  : `Próxima · ${item.daysRemaining} dia(s)`
-                : `Em dia · Faltam ${formatKm(item.kmRemaining)}`;
-
-            return (
-              <div
-                key={item.id}
-                className={`bg-[#12161F] border ${borderTone} rounded-xl p-5 flex flex-col justify-between gap-4`}
-              >
-                <div className="space-y-3.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs text-[#94A3B8] flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span>{item.category}</span>
-                        <span aria-hidden="true">·</span>
-                        <span className="font-mono tabular-nums">
-                          A cada {formatKm(item.intervalKm)}
-                        </span>
-                        {item.cost !== undefined && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="font-mono tabular-nums">
-                              {formatCurrency(item.cost)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      <h2 className="font-display text-lg font-semibold text-[#F1F5F9] truncate mt-0.5">
-                        {item.title}
-                      </h2>
-                    </div>
-
-                    <div
-                      className={`inline-flex items-center gap-1.5 text-xs font-semibold shrink-0 font-mono tabular-nums ${statusTextColor}`}
-                    >
-                      <StatusIcon className="w-4 h-4 shrink-0" />
-                      <span>{statusLabel}</span>
-                    </div>
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-mono tabular-nums">
-                      <span className="text-[#CBD5E1]">
-                        Rodados: {formatKm(item.kmDrivenSinceLast)} /{' '}
-                        {formatKm(item.intervalKm)}
-                      </span>
-                      <span className="text-[#94A3B8]">
-                        {Math.round(item.progressPct)}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2 rounded-full bg-[#0B0D12] overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${barColor}`}
-                        style={{ width: `${Math.min(100, item.progressPct)}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* KM details row */}
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-[#1E2534] text-xs">
-                    <div>
-                      <span className="text-[#64748B] block">Última troca</span>
-                      <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
-                        {formatKm(item.lastDoneKm)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[#64748B] block">Odômetro atual</span>
-                      <span className="font-mono text-[#CBD5E1] tabular-nums mt-0.5 block">
-                        {formatKm(item.currentOdometerKm)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-[#64748B] block">Próxima troca</span>
-                      <span className="font-mono text-[#38BDF8] font-semibold tabular-nums mt-0.5 block">
-                        {formatKm(item.nextDueKm)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {(item.lastDoneDate || item.nextDueDate || item.notes) && (
-                    <div className="text-xs text-[#94A3B8] space-y-1">
-                      {(item.lastDoneDate || item.nextDueDate) && (
-                        <div className="font-mono tabular-nums">
-                          {item.lastDoneDate &&
-                            `Feita em ${formatDateBR(item.lastDoneDate)}`}
-                          {item.lastDoneDate && item.nextDueDate && ' · '}
-                          {item.nextDueDate &&
-                            `Limite temporal: ${formatDateBR(item.nextDueDate)}`}
-                        </div>
-                      )}
-                      {item.notes && <p className="text-[#CBD5E1]">{item.notes}</p>}
-                    </div>
-                  )}
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center justify-between gap-2 pt-3 border-t border-[#1E2534]">
-                  <button
-                    type="button"
-                    onClick={() => onRenewMaintenance(item)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-semibold text-white transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    Registrar troca
-                  </button>
-
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onEditMaintenance(item)}
-                      className="p-2 rounded-lg text-[#94A3B8] hover:text-white hover:bg-[#232A3B] transition-colors"
-                      aria-label={`Editar ${item.title}`}
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeletingItem(item)}
-                      className="p-2 rounded-lg text-[#94A3B8] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                      aria-label={`Excluir ${item.title}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {filteredItems.map((item) => (
+            <MaintenanceCard
+              key={item.id}
+              item={item}
+              onRenew={onRenewMaintenance}
+              onEdit={onEditMaintenance}
+              onRequestDelete={handleRequestDelete}
+            />
+          ))}
         </div>
       )}
 
@@ -471,10 +517,8 @@ export const MaintenanceView = React.memo(function MaintenanceView({
             : ''
         }
         confirmLabel="Excluir item"
-        onConfirm={() => {
-          if (deletingItem) onDeleteMaintenance(deletingItem.id);
-        }}
-        onCancel={() => setDeletingItem(null)}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
       />
     </div>
   );

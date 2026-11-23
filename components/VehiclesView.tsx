@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Car,
   Check,
@@ -23,7 +23,7 @@ import {
   formatKm,
   getEffectiveVehicleOdometer,
 } from '@/lib/calculations';
-import { Refueling, Vehicle } from '@/lib/types';
+import { ComputedRefueling, Refueling, Vehicle } from '@/lib/types';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface VehiclesViewProps {
@@ -42,6 +42,156 @@ interface VehiclesViewProps {
   onClearAll: () => void;
   onSignOut: () => void;
 }
+
+interface VehicleSummary {
+  vehicle: Vehicle;
+  isActive: boolean;
+  refuelingsCount: number;
+  computed: ComputedRefueling[];
+  overallAvgConsumption: number | null;
+  overallTotalSpent: number;
+  effectiveOdometer: number;
+}
+
+const VehicleCard = React.memo(function VehicleCard({
+  summary,
+  onSelectVehicle,
+  onEditVehicle,
+  onRequestDelete,
+}: {
+  summary: VehicleSummary;
+  onSelectVehicle: (id: string) => void;
+  onEditVehicle: (vehicle: Vehicle) => void;
+  onRequestDelete: (vehicle: Vehicle) => void;
+}) {
+  const {
+    vehicle: v,
+    isActive,
+    refuelingsCount,
+    computed,
+    overallAvgConsumption,
+    overallTotalSpent,
+    effectiveOdometer,
+  } = summary;
+
+  const handleSelect = useCallback(
+    () => onSelectVehicle(v.id),
+    [onSelectVehicle, v.id]
+  );
+  const handleExport = useCallback(
+    () => exportRefuelingsToCSV(v, computed),
+    [v, computed]
+  );
+  const handleEdit = useCallback(
+    () => onEditVehicle(v),
+    [onEditVehicle, v]
+  );
+  const handleDelete = useCallback(
+    () => onRequestDelete(v),
+    [onRequestDelete, v]
+  );
+
+  return (
+    <div
+      className={`rounded-xl border p-5 transition-colors flex flex-col justify-between gap-4 ${
+        isActive
+          ? 'bg-[#141A26] border-[#2563EB]'
+          : 'bg-[#12161F] border-[#232A3B] hover:border-[#334155]'
+      }`}
+    >
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs text-[#94A3B8]">
+              {v.brand} · {v.year} · {v.defaultFuel}
+            </div>
+            <h2 className="font-display text-lg font-semibold text-[#F1F5F9] truncate mt-0.5">
+              {v.name}
+            </h2>
+          </div>
+          {isActive && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] shrink-0">
+              <Check className="w-3.5 h-3.5" />
+              Ativo
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-[#1E2534] text-xs">
+          <div>
+            <span className="text-[#64748B] block">Odômetro</span>
+            <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
+              {formatKm(effectiveOdometer)}
+            </span>
+          </div>
+          <div>
+            <span className="text-[#64748B] block">Registros</span>
+            <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
+              {refuelingsCount}
+            </span>
+          </div>
+          <div>
+            <span className="text-[#64748B] block">Consumo</span>
+            <span className="font-mono text-[#38BDF8] font-semibold tabular-nums mt-0.5 block">
+              {overallAvgConsumption !== null
+                ? `${formatDecimal(overallAvgConsumption)} km/l`
+                : '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-[#64748B] block">Total gasto</span>
+            <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
+              {formatCurrency(overallTotalSpent)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[#1E2534]">
+        <div className="flex items-center gap-2">
+          {!isActive && (
+            <button
+              type="button"
+              onClick={handleSelect}
+              className="px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-semibold text-white transition-colors whitespace-nowrap"
+            >
+              Selecionar
+            </button>
+          )}
+          {computed.length > 0 && (
+            <button
+              type="button"
+              onClick={handleExport}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] text-xs font-medium text-[#CBD5E1] transition-colors whitespace-nowrap"
+            >
+              <Download className="w-3.5 h-3.5 text-[#38BDF8]" />
+              CSV
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleEdit}
+            className="p-2 rounded-lg text-[#94A3B8] hover:text-white hover:bg-[#232A3B] transition-colors"
+            aria-label={`Editar ${v.brand} ${v.name}`}
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="p-2 rounded-lg text-[#94A3B8] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            aria-label={`Excluir ${v.brand} ${v.name}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export const VehiclesView = React.memo(function VehiclesView({
   userEmail,
@@ -68,13 +218,66 @@ export const VehiclesView = React.memo(function VehiclesView({
     message: string;
   } | null>(null);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const res = await onImportBackup(file);
-    setBackupFeedback(res);
-    e.target.value = '';
-  };
+  const vehicleSummaries = useMemo<VehicleSummary[]>(() => {
+    const byVehicle = new Map<string, Refueling[]>();
+    for (const r of refuelings) {
+      const list = byVehicle.get(r.vehicleId);
+      if (list) {
+        list.push(r);
+      } else {
+        byVehicle.set(r.vehicleId, [r]);
+      }
+    }
+
+    const now = new Date();
+    return vehicles.map((v) => {
+      const vRefuelings = byVehicle.get(v.id) ?? [];
+      const computed = computeVehicleRefuelings(vRefuelings);
+      const metrics = computeDashboardMetrics(computed, now);
+      const effectiveOdometer = getEffectiveVehicleOdometer(v, vRefuelings);
+      return {
+        vehicle: v,
+        isActive: v.id === activeVehicleId,
+        refuelingsCount: vRefuelings.length,
+        computed,
+        overallAvgConsumption: metrics.overallAvgConsumption,
+        overallTotalSpent: metrics.overallTotalSpent,
+        effectiveOdometer,
+      };
+    });
+  }, [vehicles, refuelings, activeVehicleId]);
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const res = await onImportBackup(file);
+      setBackupFeedback(res);
+      e.target.value = '';
+    },
+    [onImportBackup]
+  );
+
+  const handleRequestDelete = useCallback((v: Vehicle) => {
+    setDeletingVehicle(v);
+  }, []);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (deletingVehicle) onDeleteVehicle(deletingVehicle.id);
+  }, [deletingVehicle, onDeleteVehicle]);
+
+  const handleCancelDelete = useCallback(() => {
+    setDeletingVehicle(null);
+  }, []);
+
+  const handleTriggerFileInput = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleOpenLoadDemo = useCallback(() => setConfirmLoadDemo(true), []);
+  const handleCloseLoadDemo = useCallback(() => setConfirmLoadDemo(false), []);
+  const handleOpenClearAll = useCallback(() => setConfirmClearAll(true), []);
+  const handleCloseClearAll = useCallback(() => setConfirmClearAll(false), []);
 
   return (
     <div className="space-y-8">
@@ -121,7 +324,7 @@ export const VehiclesView = React.memo(function VehiclesView({
               </button>
               <button
                 type="button"
-                onClick={() => setConfirmLoadDemo(true)}
+                onClick={handleOpenLoadDemo}
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#181D29] border border-[#232A3B] hover:border-[#3B82F6] text-sm font-medium text-[#F1F5F9] transition-colors"
               >
                 <RotateCcw className="w-4 h-4 text-[#38BDF8]" />
@@ -131,115 +334,15 @@ export const VehiclesView = React.memo(function VehiclesView({
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {vehicles.map((v) => {
-              const isActive = v.id === activeVehicleId;
-              const vRefuelings = refuelings.filter((r) => r.vehicleId === v.id);
-              const computed = computeVehicleRefuelings(vRefuelings);
-              const metrics = computeDashboardMetrics(computed, new Date());
-              const effectiveOdo = getEffectiveVehicleOdometer(v, vRefuelings);
-
-              return (
-                <div
-                  key={v.id}
-                  className={`rounded-xl border p-5 transition-colors flex flex-col justify-between gap-4 ${
-                    isActive
-                      ? 'bg-[#141A26] border-[#2563EB]'
-                      : 'bg-[#12161F] border-[#232A3B] hover:border-[#334155]'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="text-xs text-[#94A3B8]">
-                          {v.brand} · {v.year} · {v.defaultFuel}
-                        </div>
-                        <h2 className="font-display text-lg font-semibold text-[#F1F5F9] truncate mt-0.5">
-                          {v.name}
-                        </h2>
-                      </div>
-                      {isActive && (
-                        <span className="inline-flex items-center gap-1 text-xs font-medium text-[#38BDF8] shrink-0">
-                          <Check className="w-3.5 h-3.5" />
-                          Ativo
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-[#1E2534] text-xs">
-                      <div>
-                        <span className="text-[#64748B] block">Odômetro</span>
-                        <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
-                          {formatKm(effectiveOdo)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[#64748B] block">Registros</span>
-                        <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
-                          {vRefuelings.length}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[#64748B] block">Consumo</span>
-                        <span className="font-mono text-[#38BDF8] font-semibold tabular-nums mt-0.5 block">
-                          {metrics.overallAvgConsumption !== null
-                            ? `${formatDecimal(metrics.overallAvgConsumption)} km/l`
-                            : '—'}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[#64748B] block">Total gasto</span>
-                        <span className="font-mono text-[#F1F5F9] tabular-nums mt-0.5 block">
-                          {formatCurrency(metrics.overallTotalSpent)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-[#1E2534]">
-                    <div className="flex items-center gap-2">
-                      {!isActive && (
-                        <button
-                          type="button"
-                          onClick={() => onSelectVehicle(v.id)}
-                          className="px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-semibold text-white transition-colors whitespace-nowrap"
-                        >
-                          Selecionar
-                        </button>
-                      )}
-                      {computed.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => exportRefuelingsToCSV(v, computed)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] text-xs font-medium text-[#CBD5E1] transition-colors whitespace-nowrap"
-                        >
-                          <Download className="w-3.5 h-3.5 text-[#38BDF8]" />
-                          CSV
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onEditVehicle(v)}
-                        className="p-2 rounded-lg text-[#94A3B8] hover:text-white hover:bg-[#232A3B] transition-colors"
-                        aria-label={`Editar ${v.brand} ${v.name}`}
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDeletingVehicle(v)}
-                        className="p-2 rounded-lg text-[#94A3B8] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                        aria-label={`Excluir ${v.brand} ${v.name}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {vehicleSummaries.map((summary) => (
+              <VehicleCard
+                key={summary.vehicle.id}
+                summary={summary}
+                onSelectVehicle={onSelectVehicle}
+                onEditVehicle={onEditVehicle}
+                onRequestDelete={handleRequestDelete}
+              />
+            ))}
           </div>
         )}
       </section>
@@ -307,7 +410,7 @@ export const VehiclesView = React.memo(function VehiclesView({
 
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleTriggerFileInput}
             className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] text-xs font-medium text-[#F1F5F9] transition-colors whitespace-nowrap"
           >
             <Upload className="w-4 h-4 text-[#38BDF8]" />
@@ -323,7 +426,7 @@ export const VehiclesView = React.memo(function VehiclesView({
 
           <button
             type="button"
-            onClick={() => setConfirmLoadDemo(true)}
+            onClick={handleOpenLoadDemo}
             className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] text-xs font-medium text-[#CBD5E1] transition-colors whitespace-nowrap"
           >
             <RotateCcw className="w-4 h-4" />
@@ -332,7 +435,7 @@ export const VehiclesView = React.memo(function VehiclesView({
 
           <button
             type="button"
-            onClick={() => setConfirmClearAll(true)}
+            onClick={handleOpenClearAll}
             className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-red-500/40 text-xs font-medium text-red-400 transition-colors whitespace-nowrap"
           >
             <Trash2 className="w-4 h-4" />
@@ -350,10 +453,8 @@ export const VehiclesView = React.memo(function VehiclesView({
             : ''
         }
         confirmLabel="Excluir veículo"
-        onConfirm={() => {
-          if (deletingVehicle) onDeleteVehicle(deletingVehicle.id);
-        }}
-        onCancel={() => setDeletingVehicle(null)}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
       />
 
       <ConfirmDialog
@@ -362,7 +463,7 @@ export const VehiclesView = React.memo(function VehiclesView({
         description="Todos os veículos, abastecimentos e manutenções salvos na sua conta serão removidos para que você possa começar do zero."
         confirmLabel="Limpar tudo"
         onConfirm={onClearAll}
-        onCancel={() => setConfirmClearAll(false)}
+        onCancel={handleCloseClearAll}
       />
 
       <ConfirmDialog
@@ -372,7 +473,7 @@ export const VehiclesView = React.memo(function VehiclesView({
         confirmLabel="Carregar exemplo"
         danger={false}
         onConfirm={onLoadDemo}
-        onCancel={() => setConfirmLoadDemo(false)}
+        onCancel={handleCloseLoadDemo}
       />
     </div>
   );

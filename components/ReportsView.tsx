@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -18,8 +18,47 @@ import {
   formatDecimal,
   formatKm,
 } from '@/lib/calculations';
-import { ComputedRefueling, ReportPeriod, Vehicle } from '@/lib/types';
+import {
+  ComputedRefueling,
+  FuelComparisonItem,
+  ReportPeriod,
+  Vehicle,
+} from '@/lib/types';
 import { ColumnBarChart, TrendLineChart } from './Charts';
+
+const FuelComparisonRow = React.memo(function FuelComparisonRow({
+  row,
+}: {
+  row: FuelComparisonItem;
+}) {
+  return (
+    <tr className="hover:bg-[#161B26]">
+      <td className="py-3 px-5 font-medium text-[#F1F5F9]">{row.fuelType}</td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
+        {row.count}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
+        {formatDecimal(row.totalLiters)} L
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
+        {formatKm(row.distanceKm)}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
+        {formatCurrency(row.avgPricePerLiter)}
+      </td>
+      <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-[#38BDF8] tabular-nums">
+        {row.avgConsumptionKmPerL !== null
+          ? `${formatDecimal(row.avgConsumptionKmPerL)} km/l`
+          : '—'}
+      </td>
+      <td className="py-3 px-5 text-right font-mono text-xs text-[#F1F5F9] tabular-nums">
+        {row.avgCostPerKm !== null
+          ? `${formatCurrency(row.avgCostPerKm)}/km`
+          : '—'}
+      </td>
+    </tr>
+  );
+});
 
 interface ReportsViewProps {
   vehicle: Vehicle | null;
@@ -115,6 +154,29 @@ export const ReportsView = React.memo(function ReportsView({
     [monthlyBuckets]
   );
 
+  const handleExportCSV = useCallback(() => {
+    if (vehicle) exportRefuelingsToCSV(vehicle, filteredRefuelings);
+  }, [vehicle, filteredRefuelings]);
+
+  const formatConsumption = useCallback(
+    (v: number) => `${formatDecimal(v)} km/l`,
+    []
+  );
+  const formatSpendValue = useCallback((v: number) => formatCurrency(v), []);
+  const formatSpendAxis = useCallback(
+    (v: number) => `R$${Math.round(v)}`,
+    []
+  );
+  const formatPriceValue = useCallback(
+    (v: number) => `${formatCurrency(v)}/L`,
+    []
+  );
+  const formatDistanceValue = useCallback((v: number) => formatKm(v), []);
+  const formatDistanceAxis = useCallback(
+    (v: number) => `${Math.round(v)}`,
+    []
+  );
+
   if (!vehicle) {
     return (
       <div className="bg-[#12161F] border border-[#232A3B] rounded-xl p-8 text-center">
@@ -160,7 +222,7 @@ export const ReportsView = React.memo(function ReportsView({
           <button
             type="button"
             disabled={filteredRefuelings.length === 0}
-            onClick={() => exportRefuelingsToCSV(vehicle, filteredRefuelings)}
+            onClick={handleExportCSV}
             className="inline-flex items-center gap-2 h-9 px-3.5 rounded-lg bg-[#12161F] border border-[#232A3B] hover:border-[#3B82F6] text-xs font-medium text-[#F1F5F9] disabled:opacity-40 disabled:pointer-events-none transition-colors whitespace-nowrap shrink-0"
           >
             <Download className="w-3.5 h-3.5 text-[#38BDF8]" />
@@ -296,7 +358,7 @@ export const ReportsView = React.memo(function ReportsView({
           subtitle="Rendimento médio em quilômetros por litro (km/l)"
           data={consumptionSeries}
           unit="km/l"
-          valueFormatter={(v) => `${formatDecimal(v)} km/l`}
+          valueFormatter={formatConsumption}
           accentColor="#38BDF8"
         />
 
@@ -304,8 +366,8 @@ export const ReportsView = React.memo(function ReportsView({
           title="Evolução dos gastos mensais"
           subtitle="Total investido em combustível mês a mês (R$)"
           data={monthlySpendSeries}
-          valueFormatter={(v) => formatCurrency(v)}
-          axisFormatter={(v) => `R$${Math.round(v)}`}
+          valueFormatter={formatSpendValue}
+          axisFormatter={formatSpendAxis}
           barColor="#2563EB"
         />
 
@@ -314,7 +376,7 @@ export const ReportsView = React.memo(function ReportsView({
           subtitle="Valor pago por litro ao longo dos abastecimentos (R$/L)"
           data={fuelPriceSeries}
           unit="R$/L"
-          valueFormatter={(v) => `${formatCurrency(v)}/L`}
+          valueFormatter={formatPriceValue}
           accentColor="#3B82F6"
         />
 
@@ -322,8 +384,8 @@ export const ReportsView = React.memo(function ReportsView({
           title="Quilômetros percorridos por mês"
           subtitle="Distância acumulada entre abastecimentos por mês (km)"
           data={monthlyDistanceSeries}
-          valueFormatter={(v) => formatKm(v)}
-          axisFormatter={(v) => `${Math.round(v)}`}
+          valueFormatter={formatDistanceValue}
+          axisFormatter={formatDistanceAxis}
           barColor="#0EA5E9"
         />
       </div>
@@ -355,33 +417,7 @@ export const ReportsView = React.memo(function ReportsView({
               </thead>
               <tbody className="divide-y divide-[#1D2332] text-sm">
                 {fuelComparison.map((row) => (
-                  <tr key={row.fuelType} className="hover:bg-[#161B26]">
-                    <td className="py-3 px-5 font-medium text-[#F1F5F9]">
-                      {row.fuelType}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
-                      {row.count}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
-                      {formatDecimal(row.totalLiters)} L
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
-                      {formatKm(row.distanceKm)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-xs text-[#CBD5E1] tabular-nums">
-                      {formatCurrency(row.avgPricePerLiter)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-[#38BDF8] tabular-nums">
-                      {row.avgConsumptionKmPerL !== null
-                        ? `${formatDecimal(row.avgConsumptionKmPerL)} km/l`
-                        : '—'}
-                    </td>
-                    <td className="py-3 px-5 text-right font-mono text-xs text-[#F1F5F9] tabular-nums">
-                      {row.avgCostPerKm !== null
-                        ? `${formatCurrency(row.avgCostPerKm)}/km`
-                        : '—'}
-                    </td>
-                  </tr>
+                  <FuelComparisonRow key={row.fuelType} row={row} />
                 ))}
               </tbody>
             </table>
