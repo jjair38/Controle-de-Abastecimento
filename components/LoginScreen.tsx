@@ -2,13 +2,17 @@
 
 import React, { useRef, useState } from 'react';
 import Image from 'next/image';
-import { BarChart3, Fuel, LogIn, ShieldCheck } from 'lucide-react';
 import {
-  browserLocalPersistence,
-  setPersistence,
-  signInWithPopup,
-} from 'firebase/auth';
+  BarChart3,
+  Check,
+  Copy,
+  Fuel,
+  LogIn,
+  ShieldCheck,
+} from 'lucide-react';
+import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '@/lib/firebase';
+import firebaseConfig from '../firebase-applet-config.json';
 
 function formatAuthError(err: unknown): string {
   const code =
@@ -20,24 +24,24 @@ function formatAuthError(err: unknown): string {
 
   switch (code) {
     case 'auth/popup-closed-by-user':
-      return 'A janela de login foi fechada antes de concluir o acesso. Clique novamente e conclua a escolha da conta.';
+      return 'A janela de login foi fechada antes de concluir. Se a janela exibiu "The requested action is invalid", abra o aplicativo em uma nova aba direta do navegador ou autorize o domínio atual no Console do Firebase.';
     case 'auth/cancelled-popup-request':
-      return 'Outra tentativa de login foi iniciada. Aguarde um instante e clique apenas uma vez em Entrar com Google.';
+      return 'Outra tentativa de login estava em andamento. Aguarde e clique apenas uma vez em Entrar com Google.';
     case 'auth/popup-blocked':
-      return 'O navegador bloqueou o pop-up de login do Google. Libere pop-ups para este site nas configurações do navegador e tente novamente.';
+      return 'O navegador bloqueou o pop-up de login do Google. Libere pop-ups para este site e tente novamente.';
     case 'auth/unauthorized-domain':
-      return `O domínio atual (${hostname}) ainda não está autorizado no Firebase Authentication. Adicione "${hostname}" em Authentication > Settings > Authorized domains no Console do Firebase.`;
+      return `O domínio atual (${hostname}) não está autorizado no Firebase Authentication. Adicione-o em Authentication > Settings > Authorized domains.`;
     case 'auth/operation-not-allowed':
-      return 'O login com Google não está ativado neste projeto Firebase. Ative o provedor Google em Authentication > Sign-in method.';
+      return 'O login com Google não está ativado neste projeto Firebase (Authentication > Sign-in method).';
     case 'auth/network-request-failed':
       return 'Falha de conexão com os servidores do Google. Verifique sua internet e tente novamente.';
     case 'auth/web-storage-unsupported':
-      return 'Seu navegador está bloqueando cookies ou armazenamento local necessários para o login do Google. Desative o bloqueio de cookies de terceiros ou abra fora do modo anônimo.';
+      return 'O navegador bloqueou cookies/armazenamento necessários para o login. Permita cookies para este site ou use fora do modo anônimo.';
     case 'auth/internal-error':
-      return 'O navegador interrompeu a comunicação com a janela do Google (comum quando cookies de terceiros ou bloqueadores estão ativos). Tente permitir cookies para este site ou abrir o app em uma nova aba.';
+      return 'O navegador bloqueou a comunicação entre o app e a janela do Google. Abra o app diretamente em uma nova aba (fora do iframe) e permita cookies para este site.';
     default:
       return code
-        ? `Não foi possível entrar com sua conta Google (${code}). Tente novamente ou abra o app em uma nova aba.`
+        ? `Não foi possível entrar com sua conta Google (${code}). Se aparecer "The requested action is invalid", abra o app em uma nova aba ou autorize o domínio atual no Firebase.`
         : 'Não foi possível entrar com sua conta Google. Tente novamente em instantes.';
   }
 }
@@ -45,7 +49,11 @@ function formatAuthError(err: unknown): string {
 export function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
   const inFlightRef = useRef(false);
+
+  const currentDomain =
+    typeof window !== 'undefined' ? window.location.hostname : '';
 
   const handleGoogleLogin = async () => {
     if (inFlightRef.current) return;
@@ -53,13 +61,24 @@ export function LoginScreen() {
     setError(null);
     setLoading(true);
     try {
-      await setPersistence(auth, browserLocalPersistence).catch(() => {});
+      // Call signInWithPopup synchronously inside click gesture (no preceding await)
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
       setError(formatAuthError(err));
     } finally {
       inFlightRef.current = false;
       setLoading(false);
+    }
+  };
+
+  const handleCopyDomain = async () => {
+    if (!currentDomain) return;
+    try {
+      await navigator.clipboard.writeText(currentDomain);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2000);
+    } catch {
+      // Clipboard API unavailable
     }
   };
 
@@ -114,8 +133,36 @@ export function LoginScreen() {
         </div>
 
         {error && (
-          <div className="p-3.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-200 leading-relaxed">
-            {error}
+          <div className="p-3.5 rounded-lg bg-red-500/10 border border-red-500/30 text-xs text-red-200 leading-relaxed space-y-2.5">
+            <p>{error}</p>
+            {currentDomain && (
+              <div className="pt-2 border-t border-red-500/20 flex items-center justify-between gap-2">
+                <span className="font-mono text-[11px] text-red-100 truncate">
+                  Domínio: {currentDomain}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyDomain}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-500/20 hover:bg-red-500/30 text-[11px] text-white shrink-0"
+                >
+                  {copiedDomain ? (
+                    <>
+                      <Check className="w-3 h-3" />
+                      Copiado
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3" />
+                      Copiar
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+            <p className="text-[11px] text-[#CBD5E1]">
+              Projeto Firebase:{' '}
+              <span className="font-mono">{firebaseConfig.projectId}</span>
+            </p>
           </div>
         )}
 

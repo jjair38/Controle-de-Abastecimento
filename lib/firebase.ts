@@ -1,10 +1,5 @@
 import { getApp, getApps, initializeApp } from 'firebase/app';
-import {
-  browserLocalPersistence,
-  getAuth,
-  GoogleAuthProvider,
-  setPersistence,
-} from 'firebase/auth';
+import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -12,14 +7,10 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+auth.useDeviceLanguage();
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
-
-if (typeof window !== 'undefined') {
-  void setPersistence(auth, browserLocalPersistence).catch(() => {
-    // Fallback to default Firebase Auth persistence if local storage is restricted
-  });
-}
 
 export enum OperationType {
   CREATE = 'create',
