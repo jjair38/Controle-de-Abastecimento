@@ -7,10 +7,12 @@ import {
   Database,
   Download,
   Edit2,
+  LogOut,
   Plus,
   RotateCcw,
   Trash2,
   Upload,
+  UserCheck,
 } from 'lucide-react';
 import {
   computeDashboardMetrics,
@@ -24,6 +26,8 @@ import { Refueling, Vehicle } from '@/lib/types';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface VehiclesViewProps {
+  userEmail: string;
+  userName: string;
   vehicles: Vehicle[];
   refuelings: Refueling[];
   activeVehicleId: string | null;
@@ -35,9 +39,12 @@ interface VehiclesViewProps {
   onImportBackup: (file: File) => Promise<{ ok: boolean; message: string }>;
   onLoadDemo: () => void;
   onClearAll: () => void;
+  onSignOut: () => void;
 }
 
 export function VehiclesView({
+  userEmail,
+  userName,
   vehicles,
   refuelings,
   activeVehicleId,
@@ -49,6 +56,7 @@ export function VehiclesView({
   onImportBackup,
   onLoadDemo,
   onClearAll,
+  onSignOut,
 }: VehiclesViewProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [deletingVehicle, setDeletingVehicle] = useState<Vehicle | null>(null);
@@ -78,7 +86,7 @@ export function VehiclesView({
             </h1>
             <p className="text-xs text-[#94A3B8] mt-1">
               Gerencie múltiplos veículos com históricos e médias totalmente
-              separados.
+              separados na nuvem.
             </p>
           </div>
           <button
@@ -234,19 +242,41 @@ export function VehiclesView({
         )}
       </section>
 
+      {/* Google Account Section */}
+      <section className="bg-[#12161F] border border-[#232A3B] rounded-xl p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <UserCheck className="w-5 h-5 text-[#38BDF8] shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <h2 className="font-display text-base font-semibold text-[#F1F5F9]">
+              Conta Google conectada
+            </h2>
+            <p className="text-xs text-[#94A3B8] mt-1 truncate">
+              {userName} · {userEmail}
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-red-500/40 text-xs font-medium text-[#CBD5E1] hover:text-red-300 transition-colors whitespace-nowrap shrink-0 self-start sm:self-auto"
+        >
+          <LogOut className="w-4 h-4" />
+          Sair da conta
+        </button>
+      </section>
+
       {/* Backup & Data Section */}
       <section className="bg-[#12161F] border border-[#232A3B] rounded-xl p-6 space-y-4">
         <div className="flex items-start gap-3">
           <Database className="w-5 h-5 text-[#38BDF8] shrink-0 mt-0.5" />
           <div>
             <h2 className="font-display text-base font-semibold text-[#F1F5F9]">
-              Backup e armazenamento local
+              Backup e sincronização na nuvem
             </h2>
             <p className="text-xs text-[#94A3B8] mt-1 leading-relaxed max-w-2xl">
-              Todos os seus veículos e abastecimentos ficam salvos
-              automaticamente no navegador. Exporte um backup em JSON para
-              guardar uma cópia de segurança ou transferir para outro
-              dispositivo.
+              Todos os seus veículos e abastecimentos ficam salvos na sua conta
+              Google em tempo real. Você também pode exportar ou restaurar uma
+              cópia de segurança em arquivo JSON.
             </p>
           </div>
         </div>
@@ -295,7 +325,7 @@ export function VehiclesView({
             className="inline-flex items-center gap-2 h-10 px-4 rounded-lg bg-[#0B0D12] border border-[#232A3B] hover:border-[#3B82F6] text-xs font-medium text-[#CBD5E1] transition-colors whitespace-nowrap"
           >
             <RotateCcw className="w-4 h-4" />
-            Restaurar dados de exemplo
+            Carregar dados de exemplo
           </button>
 
           <button
@@ -327,7 +357,7 @@ export function VehiclesView({
       <ConfirmDialog
         isOpen={confirmClearAll}
         title="Limpar todos os dados?"
-        description="Todos os veículos e registros de abastecimento salvos localmente serão removidos para que você possa começar do zero."
+        description="Todos os veículos e registros de abastecimento salvos na sua conta serão removidos para que você possa começar do zero."
         confirmLabel="Limpar tudo"
         onConfirm={onClearAll}
         onCancel={() => setConfirmClearAll(false)}
@@ -336,7 +366,7 @@ export function VehiclesView({
       <ConfirmDialog
         isOpen={confirmLoadDemo}
         title="Carregar dados de demonstração?"
-        description="Isso substituirá os dados atuais por dois veículos de exemplo (Honda Civic Touring e Fiat Strada Volcano) com histórico de abastecimentos."
+        description="Isso substituirá os dados atuais da conta por dois veículos de exemplo (Honda Civic Touring e Fiat Strada Volcano) com histórico de abastecimentos."
         confirmLabel="Carregar exemplo"
         danger={false}
         onConfirm={onLoadDemo}

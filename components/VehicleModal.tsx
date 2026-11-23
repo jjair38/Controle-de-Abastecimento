@@ -161,6 +161,7 @@ function VehicleModalForm({
               </label>
               <input
                 type="text"
+                maxLength={60}
                 value={brand}
                 onChange={(e) => setBrand(e.target.value)}
                 placeholder="Ex: Honda"
@@ -174,6 +175,7 @@ function VehicleModalForm({
               </label>
               <input
                 type="text"
+                maxLength={80}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Ex: Civic Touring"
@@ -224,6 +226,7 @@ function VehicleModalForm({
               <input
                 type="number"
                 min={0}
+                max={10000000}
                 step="1"
                 value={currentOdometer}
                 onChange={(e) => setCurrentOdometer(e.target.value)}
@@ -239,6 +242,7 @@ function VehicleModalForm({
               <input
                 type="number"
                 min={1}
+                max={2000}
                 step="0.5"
                 value={tankCapacity}
                 onChange={(e) => setTankCapacity(e.target.value)}

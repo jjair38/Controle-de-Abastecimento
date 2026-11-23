@@ -1,0 +1,175 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default-Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.uid == userId;
+    }
+
+    function isValidFuel(fuel) {
+      return fuel in ['Gasolina', 'Etanol', 'Diesel', 'GNV'];
+    }
+
+    function isValidDateStr(d) {
+      return d is string && d.size() == 10 && d.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    // Validation Blueprints (Anti-Update-Gap)
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'activeVehicleId', 'createdAt', 'updatedAt'])
+        && data.uid == userId
+        && isValidId(data.uid)
+        && data.email is string
+        && data.email.size() <= 200
+        && data.displayName is string
+        && data.displayName.size() <= 120
+        && (!('activeVehicleId' in data) || isValidId(data.activeVehicleId))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidVehicle(data, userId) {
+      return data.keys().hasAll(['ownerId', 'name', 'brand', 'year', 'defaultFuel', 'currentOdometer', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'name', 'brand', 'year', 'defaultFuel', 'currentOdometer', 'tankCapacity', 'createdAt', 'updatedAt'])
+        && data.ownerId == userId
+        && isValidId(data.ownerId)
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 80
+        && data.brand is string
+        && data.brand.size() >= 1
+        && data.brand.size() <= 60
+        && data.year is int
+        && data.year >= 1950
+        && data.year <= 2100
+        && isValidFuel(data.defaultFuel)
+        && data.currentOdometer is number
+        && data.currentOdometer >= 0
+        && data.currentOdometer <= 10000000
+        && (!('tankCapacity' in data) || (data.tankCapacity is number && data.tankCapacity > 0 && data.tankCapacity <= 2000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidRefueling(data, userId) {
+      return data.keys().hasAll(['ownerId', 'vehicleId', 'date', 'odometerKm', 'totalPaid', 'liters', 'pricePerLiter', 'fuelType', 'fullTank', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'vehicleId', 'date', 'odometerKm', 'totalPaid', 'liters', 'pricePerLiter', 'fuelType', 'fullTank', 'station', 'notes', 'createdAt', 'updatedAt'])
+        && data.ownerId == userId
+        && isValidId(data.ownerId)
+        && isValidId(data.vehicleId)
+        && isValidDateStr(data.date)
+        && data.odometerKm is number
+        && data.odometerKm >= 0
+        && data.odometerKm <= 10000000
+        && data.totalPaid is number
+        && data.totalPaid > 0
+        && data.totalPaid <= 1000000
+        && data.liters is number
+        && data.liters > 0
+        && data.liters <= 5000
+        && data.pricePerLiter is number
+        && data.pricePerLiter > 0
+        && data.pricePerLiter <= 1000
+        && isValidFuel(data.fuelType)
+        && data.fullTank is bool
+        && (!('station' in data) || (data.station is string && data.station.size() <= 100))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 400))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // User Private Profile & Preferences
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isOwner(userId)
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'activeVehicleId', 'updatedAt'])
+          || incoming().diff(existing()).affectedKeys().hasOnly(['activeVehicleId', 'updatedAt'])
+        );
+      allow delete: if false;
+
+      // User Vehicles Subcollection
+      match /vehicles/{vehicleId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(vehicleId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(vehicleId)
+          && isValidVehicle(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(vehicleId)
+          && isValidVehicle(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && (
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'brand', 'year', 'defaultFuel', 'currentOdometer', 'tankCapacity', 'updatedAt'])
+            || incoming().diff(existing()).affectedKeys().hasOnly(['currentOdometer', 'updatedAt'])
+          );
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(vehicleId);
+      }
+
+      // User Refuelings Subcollection
+      match /refuelings/{refuelingId} {
+        allow get: if isOwner(userId) && isValidId(userId) && isValidId(refuelingId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(refuelingId)
+          && isValidRefueling(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && exists(/databases/$(database)/documents/users/$(userId)/vehicles/$(incoming().vehicleId));
+        allow update: if isOwner(userId)
+          && isValidId(userId)
+          && isValidId(refuelingId)
+          && isValidRefueling(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().vehicleId == existing().vehicleId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'odometerKm', 'totalPaid', 'liters', 'pricePerLiter', 'fuelType', 'fullTank', 'station', 'notes', 'updatedAt']);
+        allow delete: if isOwner(userId) && isValidId(userId) && isValidId(refuelingId);
+      }
+    }
+  }
+}

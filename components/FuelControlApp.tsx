@@ -1,31 +1,58 @@
 'use client';
 
-import React, { useMemo, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   Car,
   History,
   LayoutDashboard,
+  LogOut,
   Plus,
+  Upload,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { onAuthStateChanged, signOut, User } from 'firebase/auth';
+import {
+  collection,
+  doc,
+  onSnapshot,
+} from 'firebase/firestore';
 import { computeVehicleRefuelings } from '@/lib/calculations';
-import { createEmptyWorkspace, createSeedData } from '@/lib/seed';
+import {
+  auth,
+  db,
+  handleFirestoreError,
+  OperationType,
+  testConnection,
+} from '@/lib/firebase';
+import {
+  createRefuelingDoc,
+  createVehicleDoc,
+  deleteRefuelingDoc,
+  deleteVehicleWithRefuelings,
+  ensureUserProfile,
+  replaceWorkspaceInFirestore,
+  syncVehicleOdometerDoc,
+  updateActiveVehicleId,
+  updateRefuelingDoc,
+  updateVehicleDoc,
+} from '@/lib/firestore-service';
+import { createSeedData } from '@/lib/seed';
 import {
   exportBackupJSON,
-  loadWorkspace,
-  saveWorkspace,
+  loadWorkspace as loadLocalLegacyWorkspace,
   validateBackupPayload,
 } from '@/lib/storage';
 import {
   ActiveTab,
-  AppStorageData,
   ComputedRefueling,
   Refueling,
   Vehicle,
 } from '@/lib/types';
 import { DashboardView } from './DashboardView';
+import { ErrorBoundary } from './ErrorBoundary';
 import { HistoryView } from './HistoryView';
+import { LoginScreen } from './LoginScreen';
 import { RefuelingModal } from './RefuelingModal';
 import { ReportsView } from './ReportsView';
 import { VehicleModal } from './VehicleModal';
@@ -42,16 +69,28 @@ const NAV_ITEMS: {
   { id: 'vehicles', label: 'Veículos', icon: Car },
 ];
 
-const emptySubscribe = () => () => {};
-
 export function FuelControlApp() {
-  const isClient = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
+  return (
+    <ErrorBoundary>
+      <FuelControlAuthGate />
+    </ErrorBoundary>
   );
+}
 
-  if (!isClient) {
+function FuelControlAuthGate() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    void testConnection();
+    const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser);
+      setAuthReady(true);
+    });
+    return () => unsub();
+  }, []);
+
+  if (!authReady) {
     return (
       <div className="min-h-screen bg-[#0B0D12] text-[#F1F5F9] flex flex-col">
         <header className="sticky top-0 z-30 bg-[#0B0D12]/90 border-b border-[#1E2534]">
@@ -78,95 +117,234 @@ export function FuelControlApp() {
     );
   }
 
-  return <FuelControlWorkspace />;
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  return <FuelControlCloudWorkspace key={user.uid} user={user} />;
 }
 
-function FuelControlWorkspace() {
-  const [workspace, setWorkspace] = useState<AppStorageData>(() =>
-    loadWorkspace()
-  );
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+function FuelControlCloudWorkspace({ user }: { user: User }) {
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [refuelings, setRefuelings] = useState<Refueling[]>([]);
+  const [activeVehicleId, setActiveVehicleId] = useState<string | null>(null);
+  const [dataReady, setDataReady] = useState(false);
+  const [asyncError, setAsyncError] = useState<Error | null>(null);
 
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [vehicleModalOpen, setVehicleModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
-
   const [refuelingModalOpen, setRefuelingModalOpen] = useState(false);
   const [editingRefueling, setEditingRefueling] = useState<Refueling | null>(
     null
   );
 
-  const updateWorkspace = (updater: (prev: AppStorageData) => AppStorageData) => {
-    setWorkspace((prev) => {
-      const next = updater(prev);
-      saveWorkspace(next);
-      return next;
-    });
-  };
+  // Offer 1-click localStorage migration if user has non-demo local data and empty cloud
+  const [migratingLocal, setMigratingLocal] = useState(false);
+  const [localLegacyDismissed, setLocalLegacyDismissed] = useState(false);
+
+  const localLegacyData = useMemo(() => {
+    const local = loadLocalLegacyWorkspace();
+    if (!local.isDemoData && local.vehicles.length > 0) {
+      return local;
+    }
+    return null;
+  }, []);
+
+  if (asyncError) {
+    throw asyncError;
+  }
+
+  useEffect(() => {
+    let active = true;
+    let unsubProfile: (() => void) | undefined;
+    let unsubVehicles: (() => void) | undefined;
+    let unsubRefuelings: (() => void) | undefined;
+
+    let profileLoaded = false;
+    let vehiclesLoaded = false;
+    let refuelingsLoaded = false;
+
+    const markReady = () => {
+      if (active && profileLoaded && vehiclesLoaded && refuelingsLoaded) {
+        setDataReady(true);
+      }
+    };
+
+    const captureError = (err: unknown) => {
+      if (!active) return;
+      setAsyncError(err instanceof Error ? err : new Error(String(err)));
+    };
+
+    ensureUserProfile(user)
+      .then(() => {
+        if (!active) return;
+
+        const profilePath = `users/${user.uid}`;
+        unsubProfile = onSnapshot(
+          doc(db, 'users', user.uid),
+          (snap) => {
+            if (!active) return;
+            const d = snap.data();
+            setActiveVehicleId(
+              d && typeof d.activeVehicleId === 'string'
+                ? d.activeVehicleId
+                : null
+            );
+            profileLoaded = true;
+            markReady();
+          },
+          (error) => {
+            try {
+              handleFirestoreError(error, OperationType.GET, profilePath);
+            } catch (e) {
+              captureError(e);
+            }
+          }
+        );
+
+        const vehiclesPath = `users/${user.uid}/vehicles`;
+        const vehiclesQuery = collection(db, 'users', user.uid, 'vehicles');
+        unsubVehicles = onSnapshot(
+          vehiclesQuery,
+          (snapshot) => {
+            if (!active) return;
+            const list: Vehicle[] = snapshot.docs.map((d) => {
+              const raw = d.data();
+              const createdAtIso =
+                raw.createdAt && typeof raw.createdAt.toDate === 'function'
+                  ? raw.createdAt.toDate().toISOString()
+                  : new Date().toISOString();
+              return {
+                id: d.id,
+                name: String(raw.name || ''),
+                brand: String(raw.brand || ''),
+                year: Number(raw.year || new Date().getFullYear()),
+                defaultFuel: raw.defaultFuel || 'Gasolina',
+                currentOdometer: Number(raw.currentOdometer || 0),
+                tankCapacity:
+                  typeof raw.tankCapacity === 'number'
+                    ? raw.tankCapacity
+                    : undefined,
+                createdAt: createdAtIso,
+              };
+            });
+            list.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+            setVehicles(list);
+            vehiclesLoaded = true;
+            markReady();
+          },
+          (error) => {
+            try {
+              handleFirestoreError(error, OperationType.LIST, vehiclesPath);
+            } catch (e) {
+              captureError(e);
+            }
+          }
+        );
+
+        const refuelingsPath = `users/${user.uid}/refuelings`;
+        const refuelingsQuery = collection(db, 'users', user.uid, 'refuelings');
+        unsubRefuelings = onSnapshot(
+          refuelingsQuery,
+          (snapshot) => {
+            if (!active) return;
+            const list: Refueling[] = snapshot.docs.map((d) => {
+              const raw = d.data();
+              const createdAtIso =
+                raw.createdAt && typeof raw.createdAt.toDate === 'function'
+                  ? raw.createdAt.toDate().toISOString()
+                  : new Date().toISOString();
+              return {
+                id: d.id,
+                vehicleId: String(raw.vehicleId || ''),
+                date: String(raw.date || ''),
+                odometerKm: Number(raw.odometerKm || 0),
+                totalPaid: Number(raw.totalPaid || 0),
+                liters: Number(raw.liters || 0),
+                pricePerLiter: Number(raw.pricePerLiter || 0),
+                fuelType: raw.fuelType || 'Gasolina',
+                fullTank: Boolean(raw.fullTank),
+                station:
+                  typeof raw.station === 'string' ? raw.station : undefined,
+                notes: typeof raw.notes === 'string' ? raw.notes : undefined,
+                createdAt: createdAtIso,
+              };
+            });
+            setRefuelings(list);
+            refuelingsLoaded = true;
+            markReady();
+          },
+          (error) => {
+            try {
+              handleFirestoreError(error, OperationType.LIST, refuelingsPath);
+            } catch (e) {
+              captureError(e);
+            }
+          }
+        );
+      })
+      .catch(captureError);
+
+    return () => {
+      active = false;
+      unsubProfile?.();
+      unsubVehicles?.();
+      unsubRefuelings?.();
+    };
+  }, [user]);
 
   const activeVehicle = useMemo(() => {
-    if (workspace.vehicles.length === 0) return null;
-    return (
-      workspace.vehicles.find((v) => v.id === workspace.activeVehicleId) ||
-      workspace.vehicles[0]
-    );
-  }, [workspace]);
+    if (vehicles.length === 0) return null;
+    return vehicles.find((v) => v.id === activeVehicleId) || vehicles[0];
+  }, [vehicles, activeVehicleId]);
 
   const activeVehicleRefuelings = useMemo(() => {
     if (!activeVehicle) return [];
-    return workspace.refuelings.filter((r) => r.vehicleId === activeVehicle.id);
-  }, [workspace.refuelings, activeVehicle]);
+    return refuelings.filter((r) => r.vehicleId === activeVehicle.id);
+  }, [refuelings, activeVehicle]);
 
   const computedRefuelings = useMemo(
     () => computeVehicleRefuelings(activeVehicleRefuelings),
     [activeVehicleRefuelings]
   );
 
+  const runCloudOp = (op: () => Promise<void>) => {
+    op().catch((err) => {
+      setAsyncError(err instanceof Error ? err : new Error(String(err)));
+    });
+  };
+
+  const handleSelectVehicle = (vehicleId: string) => {
+    setActiveVehicleId(vehicleId);
+    runCloudOp(() => updateActiveVehicleId(user.uid, vehicleId));
+  };
+
   const handleSaveVehicle = (
     data: Omit<Vehicle, 'id' | 'createdAt'>,
     existingId?: string
   ) => {
-    updateWorkspace((prev) => {
+    runCloudOp(async () => {
       if (existingId) {
-        return {
-          ...prev,
-          isDemoData: false,
-          vehicles: prev.vehicles.map((v) =>
-            v.id === existingId ? { ...v, ...data } : v
-          ),
-        };
+        await updateVehicleDoc(user.uid, existingId, data);
+      } else {
+        const createdId = await createVehicleDoc(user.uid, data);
+        await updateActiveVehicleId(user.uid, createdId);
       }
-      const newVehicle: Vehicle = {
-        ...data,
-        id: `veh-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        createdAt: new Date().toISOString(),
-      };
-      return {
-        ...prev,
-        isDemoData: false,
-        vehicles: [...prev.vehicles, newVehicle],
-        activeVehicleId: newVehicle.id,
-      };
     });
   };
 
   const handleDeleteVehicle = (vehicleId: string) => {
-    updateWorkspace((prev) => {
-      const remainingVehicles = prev.vehicles.filter((v) => v.id !== vehicleId);
-      const remainingRefuelings = prev.refuelings.filter(
-        (r) => r.vehicleId !== vehicleId
-      );
-      const nextActiveId =
-        prev.activeVehicleId === vehicleId
-          ? remainingVehicles[0]?.id || null
-          : prev.activeVehicleId;
+    const linkedIds = refuelings
+      .filter((r) => r.vehicleId === vehicleId)
+      .map((r) => r.id);
+    const nextVehicle = vehicles.find((v) => v.id !== vehicleId) || null;
 
-      return {
-        ...prev,
-        isDemoData: false,
-        vehicles: remainingVehicles,
-        refuelings: remainingRefuelings,
-        activeVehicleId: nextActiveId,
-      };
+    runCloudOp(async () => {
+      await deleteVehicleWithRefuelings(user.uid, vehicleId, linkedIds);
+      if (activeVehicleId === vehicleId) {
+        await updateActiveVehicleId(user.uid, nextVehicle?.id ?? null);
+      }
     });
   };
 
@@ -174,44 +352,25 @@ function FuelControlWorkspace() {
     data: Omit<Refueling, 'id' | 'createdAt'>,
     existingId?: string
   ) => {
-    updateWorkspace((prev) => {
-      let nextRefuelings: Refueling[];
+    runCloudOp(async () => {
       if (existingId) {
-        nextRefuelings = prev.refuelings.map((r) =>
-          r.id === existingId ? { ...r, ...data } : r
-        );
+        await updateRefuelingDoc(user.uid, existingId, data);
       } else {
-        const created: Refueling = {
-          ...data,
-          id: `ref-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          createdAt: new Date().toISOString(),
-        };
-        nextRefuelings = [...prev.refuelings, created];
+        await createRefuelingDoc(user.uid, data);
       }
-
-      const nextVehicles = prev.vehicles.map((v) => {
-        if (v.id !== data.vehicleId) return v;
-        if (data.odometerKm > v.currentOdometer) {
-          return { ...v, currentOdometer: data.odometerKm };
-        }
-        return v;
-      });
-
-      return {
-        ...prev,
-        isDemoData: false,
-        vehicles: nextVehicles,
-        refuelings: nextRefuelings,
-      };
+      const targetVehicle = vehicles.find((v) => v.id === data.vehicleId);
+      if (targetVehicle && data.odometerKm > targetVehicle.currentOdometer) {
+        await syncVehicleOdometerDoc(
+          user.uid,
+          targetVehicle.id,
+          data.odometerKm
+        );
+      }
     });
   };
 
   const handleDeleteRefueling = (refuelingId: string) => {
-    updateWorkspace((prev) => ({
-      ...prev,
-      isDemoData: false,
-      refuelings: prev.refuelings.filter((r) => r.id !== refuelingId),
-    }));
+    runCloudOp(() => deleteRefuelingDoc(user.uid, refuelingId));
   };
 
   const handleImportBackup = async (
@@ -228,18 +387,46 @@ function FuelControlWorkspace() {
             'Arquivo de backup inválido. Verifique se é um arquivo JSON exportado pelo Controle de Abastecimento - Jair.',
         };
       }
-      saveWorkspace(validated);
-      setWorkspace(validated);
+      await replaceWorkspaceInFirestore(
+        user.uid,
+        vehicles.map((v) => v.id),
+        refuelings.map((r) => r.id),
+        validated.vehicles,
+        validated.refuelings,
+        validated.activeVehicleId
+      );
       return {
         ok: true,
-        message: `Backup restaurado com sucesso: ${validated.vehicles.length} veículo(s) e ${validated.refuelings.length} abastecimento(s).`,
+        message: `Backup restaurado na nuvem com sucesso: ${validated.vehicles.length} veículo(s) e ${validated.refuelings.length} abastecimento(s).`,
       };
     } catch {
       return {
         ok: false,
-        message: 'Não foi possível ler o arquivo JSON selecionado.',
+        message: 'Não foi possível importar o arquivo JSON selecionado.',
       };
     }
+  };
+
+  const handleMigrateLocal = () => {
+    if (!localLegacyData) return;
+    setMigratingLocal(true);
+    replaceWorkspaceInFirestore(
+      user.uid,
+      vehicles.map((v) => v.id),
+      refuelings.map((r) => r.id),
+      localLegacyData.vehicles,
+      localLegacyData.refuelings,
+      localLegacyData.activeVehicleId
+    )
+      .then(() => {
+        setLocalLegacyDismissed(true);
+      })
+      .catch((err) => {
+        setAsyncError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        setMigratingLocal(false);
+      });
   };
 
   const openAddRefueling = () => {
@@ -255,6 +442,10 @@ function FuelControlWorkspace() {
   const openEditRefueling = (item: ComputedRefueling) => {
     setEditingRefueling(item);
     setRefuelingModalOpen(true);
+  };
+
+  const handleSignOut = () => {
+    void signOut(auth);
   };
 
   return (
@@ -310,83 +501,179 @@ function FuelControlWorkspace() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-12">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-24 md:pb-12 space-y-5">
+        {/* Account Strip */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#94A3B8] px-1">
+          <div className="flex items-center gap-2 min-w-0 truncate">
+            <span className="truncate">
+              Conta Google:{' '}
+              <strong className="font-medium text-[#CBD5E1]">
+                {user.email || user.displayName}
+              </strong>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-[#94A3B8] hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
-            {activeTab === 'dashboard' && (
-              <DashboardView
-                vehicle={activeVehicle}
-                vehicles={workspace.vehicles}
-                computed={computedRefuelings}
-                onSelectVehicle={(id) =>
-                  updateWorkspace((prev) => ({ ...prev, activeVehicleId: id }))
-                }
-                onAddRefueling={openAddRefueling}
-                onAddVehicle={() => {
-                  setEditingVehicle(null);
-                  setVehicleModalOpen(true);
-                }}
-                onNavigate={setActiveTab}
-              />
-            )}
+            <LogOut className="w-3.5 h-3.5" />
+            Sair
+          </button>
+        </div>
 
-            {activeTab === 'history' && (
-              <HistoryView
-                vehicle={activeVehicle}
-                computed={computedRefuelings}
-                onAddRefueling={openAddRefueling}
-                onEditRefueling={openEditRefueling}
-                onDeleteRefueling={handleDeleteRefueling}
-              />
-            )}
+        {/* Optional localStorage migration banner if cloud is empty and local user data exists */}
+        {dataReady &&
+          vehicles.length === 0 &&
+          localLegacyData &&
+          !localLegacyDismissed && (
+            <div className="bg-[#12161F] border border-[#2563EB]/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="text-xs text-[#CBD5E1]">
+                Encontramos{' '}
+                <strong className="text-white">
+                  {localLegacyData.vehicles.length} veículo(s)
+                </strong>{' '}
+                e{' '}
+                <strong className="text-white">
+                  {localLegacyData.refuelings.length} abastecimento(s)
+                </strong>{' '}
+                salvos neste navegador anteriormente. Deseja salvar na sua conta
+                Google?
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setLocalLegacyDismissed(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs text-[#94A3B8] hover:text-white"
+                >
+                  Ignorar
+                </button>
+                <button
+                  type="button"
+                  disabled={migratingLocal}
+                  onClick={handleMigrateLocal}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#2563EB] hover:bg-[#1D4ED8] text-xs font-semibold text-white disabled:opacity-60 whitespace-nowrap"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  {migratingLocal ? 'Importando...' : 'Importar para a nuvem'}
+                </button>
+              </div>
+            </div>
+          )}
 
-            {activeTab === 'reports' && (
-              <ReportsView
-                vehicle={activeVehicle}
-                computed={computedRefuelings}
-              />
-            )}
+        {!dataReady ? (
+          <div className="space-y-4">
+            <div className="h-24 rounded-xl bg-[#12161F] border border-[#232A3B]" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="h-32 rounded-xl bg-[#12161F] border border-[#232A3B]"
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {activeTab === 'dashboard' && (
+                <DashboardView
+                  vehicle={activeVehicle}
+                  vehicles={vehicles}
+                  computed={computedRefuelings}
+                  onSelectVehicle={handleSelectVehicle}
+                  onAddRefueling={openAddRefueling}
+                  onAddVehicle={() => {
+                    setEditingVehicle(null);
+                    setVehicleModalOpen(true);
+                  }}
+                  onNavigate={setActiveTab}
+                />
+              )}
 
-            {activeTab === 'vehicles' && (
-              <VehiclesView
-                vehicles={workspace.vehicles}
-                refuelings={workspace.refuelings}
-                activeVehicleId={activeVehicle?.id ?? null}
-                onSelectVehicle={(id) => {
-                  updateWorkspace((prev) => ({ ...prev, activeVehicleId: id }));
-                  setActiveTab('dashboard');
-                }}
-                onAddVehicle={() => {
-                  setEditingVehicle(null);
-                  setVehicleModalOpen(true);
-                }}
-                onEditVehicle={(v) => {
-                  setEditingVehicle(v);
-                  setVehicleModalOpen(true);
-                }}
-                onDeleteVehicle={handleDeleteVehicle}
-                onExportBackup={() => exportBackupJSON(workspace)}
-                onImportBackup={handleImportBackup}
-                onLoadDemo={() => {
-                  const demo = createSeedData();
-                  saveWorkspace(demo);
-                  setWorkspace(demo);
-                }}
-                onClearAll={() => {
-                  const empty = createEmptyWorkspace();
-                  saveWorkspace(empty);
-                  setWorkspace(empty);
-                }}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
+              {activeTab === 'history' && (
+                <HistoryView
+                  vehicle={activeVehicle}
+                  computed={computedRefuelings}
+                  onAddRefueling={openAddRefueling}
+                  onEditRefueling={openEditRefueling}
+                  onDeleteRefueling={handleDeleteRefueling}
+                />
+              )}
+
+              {activeTab === 'reports' && (
+                <ReportsView
+                  vehicle={activeVehicle}
+                  computed={computedRefuelings}
+                />
+              )}
+
+              {activeTab === 'vehicles' && (
+                <VehiclesView
+                  userEmail={user.email || ''}
+                  userName={user.displayName || 'Usuário'}
+                  vehicles={vehicles}
+                  refuelings={refuelings}
+                  activeVehicleId={activeVehicle?.id ?? null}
+                  onSelectVehicle={(id) => {
+                    handleSelectVehicle(id);
+                    setActiveTab('dashboard');
+                  }}
+                  onAddVehicle={() => {
+                    setEditingVehicle(null);
+                    setVehicleModalOpen(true);
+                  }}
+                  onEditVehicle={(v) => {
+                    setEditingVehicle(v);
+                    setVehicleModalOpen(true);
+                  }}
+                  onDeleteVehicle={handleDeleteVehicle}
+                  onExportBackup={() =>
+                    exportBackupJSON({
+                      version: 1,
+                      vehicles,
+                      refuelings,
+                      activeVehicleId: activeVehicle?.id ?? null,
+                    })
+                  }
+                  onImportBackup={handleImportBackup}
+                  onLoadDemo={() => {
+                    const demo = createSeedData();
+                    runCloudOp(() =>
+                      replaceWorkspaceInFirestore(
+                        user.uid,
+                        vehicles.map((v) => v.id),
+                        refuelings.map((r) => r.id),
+                        demo.vehicles,
+                        demo.refuelings,
+                        demo.activeVehicleId
+                      )
+                    );
+                  }}
+                  onClearAll={() => {
+                    runCloudOp(() =>
+                      replaceWorkspaceInFirestore(
+                        user.uid,
+                        vehicles.map((v) => v.id),
+                        refuelings.map((r) => r.id),
+                        [],
+                        [],
+                        null
+                      )
+                    );
+                  }}
+                  onSignOut={handleSignOut}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
+        )}
       </main>
 
       {/* Mobile Bottom Navigation */}

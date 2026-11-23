@@ -504,6 +504,7 @@ function RefuelingModalForm({
               </label>
               <input
                 type="text"
+                maxLength={100}
                 value={station}
                 onChange={(e) => setStation(e.target.value)}
                 placeholder="Ex: Shell Select Paulista"
@@ -547,6 +548,7 @@ function RefuelingModalForm({
             </label>
             <input
               type="text"
+              maxLength={400}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Ex: Trecho rodoviário, ar-condicionado ligado..."
