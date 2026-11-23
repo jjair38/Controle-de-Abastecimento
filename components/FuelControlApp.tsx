@@ -40,8 +40,10 @@ import {
 } from '@/lib/firestore-service';
 import { createSeedData } from '@/lib/seed';
 import {
+  createEmptyWorkspace,
   exportBackupJSON,
-  loadWorkspace as loadLocalLegacyWorkspace,
+  peekLocalLegacyWorkspace,
+  saveWorkspace,
   validateBackupPayload,
 } from '@/lib/storage';
 import {
@@ -150,13 +152,13 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
     null
   );
 
-  // Offer 1-click localStorage migration if user has non-demo local data and empty cloud
+  const [opError, setOpError] = useState<string | null>(null);
   const [migratingLocal, setMigratingLocal] = useState(false);
   const [localLegacyDismissed, setLocalLegacyDismissed] = useState(false);
 
   const localLegacyData = useMemo(() => {
-    const local = loadLocalLegacyWorkspace();
-    if (!local.isDemoData && local.vehicles.length > 0) {
+    const local = peekLocalLegacyWorkspace();
+    if (local && !local.isDemoData && local.vehicles.length > 0) {
       return local;
     }
     return null;
@@ -321,8 +323,17 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
   );
 
   const runCloudOp = (op: () => Promise<void>) => {
+    setOpError(null);
     op().catch((err) => {
-      setAsyncError(err instanceof Error ? err : new Error(String(err)));
+      const raw = err instanceof Error ? err.message : String(err);
+      let readable = raw;
+      try {
+        const parsed = JSON.parse(raw) as { error?: string };
+        if (parsed?.error) readable = parsed.error;
+      } catch {
+        // plain text error
+      }
+      setOpError(`Erro ao salvar na nuvem: ${readable}`);
     });
   };
 
@@ -430,10 +441,15 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
       localLegacyData.activeVehicleId
     )
       .then(() => {
+        saveWorkspace(createEmptyWorkspace());
         setLocalLegacyDismissed(true);
       })
       .catch((err) => {
-        setAsyncError(err instanceof Error ? err : new Error(String(err)));
+        setOpError(
+          err instanceof Error
+            ? `Erro ao importar dados locais: ${err.message}`
+            : 'Erro ao importar dados locais.'
+        );
       })
       .finally(() => {
         setMigratingLocal(false);
@@ -542,6 +558,19 @@ function FuelControlCloudWorkspace({ user }: { user: User }) {
             Sair
           </button>
         </div>
+
+        {opError && (
+          <div className="bg-red-500/10 border border-red-500/35 rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs text-red-200">
+            <span className="break-words">{opError}</span>
+            <button
+              type="button"
+              onClick={() => setOpError(null)}
+              className="px-2.5 py-1 rounded-md bg-red-500/20 hover:bg-red-500/30 text-white shrink-0"
+            >
+              Fechar
+            </button>
+          </div>
+        )}
 
         {/* Optional localStorage migration banner if cloud is empty and local user data exists */}
         {dataReady &&

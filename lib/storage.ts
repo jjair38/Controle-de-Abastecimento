@@ -31,6 +31,25 @@ export function loadWorkspace(): AppStorageData {
   }
 }
 
+export function peekLocalLegacyWorkspace(): AppStorageData | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AppStorageData;
+    if (
+      !parsed ||
+      !Array.isArray(parsed.vehicles) ||
+      !Array.isArray(parsed.refuelings)
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function saveWorkspace(data: AppStorageData): void {
   if (typeof window === 'undefined') return;
   try {
